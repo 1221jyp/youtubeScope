@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>조준경 - 세션 리포트</title>
+  <style>
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      font-family: "Roboto", "Noto Sans KR", sans-serif;
+      color: #111;
+    }
+    h1 {
+      font-size: 15px;
+      margin: 0 0 4px;
+    }
+    .jjg-purpose {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 14px;
+      word-break: break-all;
+    }
+    .jjg-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .jjg-stat {
+      flex: 1;
+      background: #f4f4f4;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .jjg-stat .num {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .jjg-stat .label {
+      font-size: 11px;
+      color: #666;
+    }
+    #jjg-chain {
+      font-size: 12px;
+      line-height: 1.9;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .jjg-chain-item {
+      padding: 6px 8px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      background: #fafafa;
+    }
+    .jjg-chain-item.left {
+      background: #fff1f0;
+      border: 1px solid #ffccc7;
+    }
+    .jjg-chain-item.skipped {
+      background: #fff9e6;
+      border: 1px solid #ffe69c;
+    }
+    .jjg-chain-arrow {
+      text-align: center;
+      color: #aaa;
+      font-size: 11px;
+    }
+    .jjg-empty {
+      font-size: 12px;
+      color: #888;
+      padding: 20px 0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>이번 세션 리포트</h1>
+  <div class="jjg-purpose" id="jjg-purpose">목적: -</div>
+  <div class="jjg-stats">
+    <div class="jjg-stat">
+      <div class="num" id="jjg-total">0</div>
+      <div class="label">총 시청 영상</div>
+    </div>
+    <div class="jjg-stat">
+      <div class="num" id="jjg-leaves">0</div>
+      <div class="label">이탈 횟수</div>
+    </div>
+    <div class="jjg-stat">
+      <div class="num" id="jjg-skipped">0</div>
+      <div class="label">판정 건너뜀</div>
+    </div>
+  </div>
+  <div id="jjg-chain"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
