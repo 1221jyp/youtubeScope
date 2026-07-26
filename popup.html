@@ -44,8 +44,9 @@
     #jjg-chain {
       font-size: 12px;
       line-height: 1.9;
-      max-height: 260px;
+      max-height: 180px;
       overflow-y: auto;
+      margin-bottom: 14px;
     }
     .jjg-chain-item {
       padding: 6px 8px;
@@ -61,6 +62,10 @@
       background: #fff9e6;
       border: 1px solid #ffe69c;
     }
+    .jjg-chain-item.prevented {
+      background: #edf7ed;
+      border: 1px solid #b7dfb9;
+    }
     .jjg-chain-arrow {
       text-align: center;
       color: #aaa;
@@ -71,6 +76,82 @@
       color: #888;
       padding: 20px 0;
       text-align: center;
+    }
+    .jjg-report-panel {
+      border-top: 1px solid #e5e5e5;
+      padding-top: 14px;
+    }
+    .jjg-report-panel h2 {
+      font-size: 14px;
+      margin: 0 0 10px;
+    }
+    .jjg-report-button {
+      width: 100%;
+      padding: 9px 12px;
+      border: 0;
+      border-radius: 8px;
+      background: #cc0000;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .jjg-report-button.secondary {
+      margin-top: 10px;
+      background: #f1f1f1;
+      color: #333;
+    }
+    .jjg-report-button:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+    .jjg-report-loading,
+    .jjg-report-error {
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      text-align: center;
+    }
+    .jjg-report-loading {
+      background: #f5f5f5;
+      color: #555;
+    }
+    .jjg-report-error {
+      background: #fff1f0;
+      color: #8a1c17;
+    }
+    #jjg-report-output {
+      max-height: 310px;
+      overflow-y: auto;
+      padding-right: 3px;
+    }
+    .jjg-report-section {
+      margin: 0 0 8px;
+      padding: 9px 10px;
+      border-radius: 7px;
+      background: #fafafa;
+    }
+    .jjg-report-section.prominent {
+      background: #fff5f5;
+      border-left: 3px solid #cc0000;
+    }
+    .jjg-report-section h3 {
+      margin: 0 0 4px;
+      font-size: 12px;
+    }
+    .jjg-report-section p,
+    .jjg-report-section ul {
+      margin: 0;
+      color: #444;
+      font-size: 11.5px;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+    .jjg-report-section ul {
+      padding-left: 18px;
+    }
+    [hidden] {
+      display: none !important;
     }
   </style>
 </head>
@@ -92,6 +173,21 @@
     </div>
   </div>
   <div id="jjg-chain"></div>
+  <div class="jjg-report-panel">
+    <h2>AI 이탈 리포트</h2>
+    <button class="jjg-report-button" id="jjg-report-generate">AI 이탈 리포트 생성</button>
+    <div class="jjg-report-loading" id="jjg-report-loading" hidden>
+      AI가 시청 경로를 분석하고 있어요...
+    </div>
+    <div class="jjg-report-error" id="jjg-report-error" hidden>
+      <div id="jjg-report-error-message"></div>
+      <button class="jjg-report-button secondary" id="jjg-report-retry">다시 시도</button>
+    </div>
+    <div id="jjg-report-content" hidden>
+      <div id="jjg-report-output"></div>
+      <button class="jjg-report-button secondary" id="jjg-report-regenerate">리포트 다시 생성</button>
+    </div>
+  </div>
   <script src="popup.js"></script>
 </body>
 </html>

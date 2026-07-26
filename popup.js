@@ -1,44 +1,164 @@
-document.addEventListener("DOMContentLoaded", async () => {
-  const data = await new Promise((resolve) =>
-    chrome.storage.local.get(["jjg_purpose", "jjg_session_log"], resolve)
-  );
+const STORAGE_KEYS = {
+  PURPOSE: "jjg_purpose",
+  SESSION_ID: "jjg_session_id",
+  SESSION_LOG: "jjg_session_log",
+  SESSION_REPORT: "jjg_session_report",
+};
 
-  const purpose = data.jjg_purpose || "(설정 안 됨)";
-  const log = data.jjg_session_log || [];
+let reportLoading = false;
+
+function storageGet(keys) {
+  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
+}
+
+function appendTextElement(parent, tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function renderChain(log) {
+  const chainEl = document.getElementById("jjg-chain");
+  chainEl.replaceChildren();
+  if (log.length === 0) {
+    appendTextElement(chainEl, "div", "jjg-empty", "아직 시청한 영상이 없어요.");
+    return;
+  }
+
+  log.forEach((entry, idx) => {
+    const item = document.createElement("div");
+    item.className = "jjg-chain-item";
+    let icon = "";
+    if (entry.action === "left_anyway") {
+      item.classList.add("left");
+      icon = "⚠️ ";
+    } else if (entry.action === "went_back") {
+      item.classList.add("prevented");
+      icon = "↩️ ";
+    } else if (entry.action === "skipped") {
+      item.classList.add("skipped");
+      icon = "⏭️ ";
+    }
+    item.textContent = `${icon}${entry.title || "(제목 없음)"}`;
+    if (entry.action === "skipped" && entry.reason) {
+      appendTextElement(item, "small", "", ` (${entry.reason})`);
+    }
+    chainEl.appendChild(item);
+    if (idx < log.length - 1) appendTextElement(chainEl, "div", "jjg-chain-arrow", "↓");
+  });
+}
+
+function addReportSection(parent, heading, content, prominent = false) {
+  const section = document.createElement("section");
+  section.className = prominent ? "jjg-report-section prominent" : "jjg-report-section";
+  appendTextElement(section, "h3", "", heading);
+  appendTextElement(section, "p", "", content || "해당 내용이 없습니다.");
+  parent.appendChild(section);
+}
+
+function addReportList(parent, heading, items) {
+  const section = document.createElement("section");
+  section.className = "jjg-report-section";
+  appendTextElement(section, "h3", "", heading);
+  if (!Array.isArray(items) || items.length === 0) {
+    appendTextElement(section, "p", "", "발견된 내용이 없습니다.");
+  } else {
+    const list = document.createElement("ul");
+    items.forEach((item) => appendTextElement(list, "li", "", String(item)));
+    section.appendChild(list);
+  }
+  parent.appendChild(section);
+}
+
+function renderReport(report) {
+  const output = document.getElementById("jjg-report-output");
+  output.replaceChildren();
+  addReportSection(output, "세션 요약", report?.summary, true);
+
+  const first = report?.firstDeviation;
+  const firstText =
+    first?.title || first?.reason
+      ? [first.title, first.reason].filter(Boolean).join(" — ")
+      : "이번 세션에서는 확인된 이탈이 없습니다.";
+  addReportSection(output, "첫 이탈 지점", firstText, true);
+
+  const path = Array.isArray(report?.diversionPath) ? report.diversionPath.filter(Boolean) : [];
+  addReportSection(
+    output,
+    "주요 이탈 경로",
+    path.length ? path.join(" → ") : "표시할 이탈 경로가 없습니다."
+  );
+  addReportList(output, "발견된 패턴", report?.patterns);
+  addReportList(output, "다음 세션 추천", report?.recommendations);
+  addReportSection(output, "AI 마무리 메시지", report?.encouragement);
+
+  document.getElementById("jjg-report-error").hidden = true;
+  document.getElementById("jjg-report-content").hidden = false;
+  document.getElementById("jjg-report-generate").hidden = true;
+}
+
+function showReportError(message) {
+  document.getElementById("jjg-report-error-message").textContent =
+    message || "AI 리포트를 생성하지 못했습니다.";
+  document.getElementById("jjg-report-error").hidden = false;
+  document.getElementById("jjg-report-content").hidden = true;
+  document.getElementById("jjg-report-generate").hidden = true;
+}
+
+function setLoading(loading) {
+  reportLoading = loading;
+  document.getElementById("jjg-report-loading").hidden = !loading;
+  document.getElementById("jjg-report-generate").disabled = loading;
+  document.getElementById("jjg-report-retry").disabled = loading;
+  document.getElementById("jjg-report-regenerate").disabled = loading;
+  if (loading) {
+    document.getElementById("jjg-report-error").hidden = true;
+    document.getElementById("jjg-report-content").hidden = true;
+    document.getElementById("jjg-report-generate").hidden = true;
+  }
+}
+
+function requestReport(force = false) {
+  if (reportLoading) return;
+  setLoading(true);
+  chrome.runtime.sendMessage({ type: "GENERATE_SESSION_REPORT", force }, (response) => {
+    setLoading(false);
+    if (chrome.runtime.lastError || !response) {
+      showReportError("확장 프로그램과 통신하지 못했습니다. 다시 시도해 주세요.");
+      return;
+    }
+    if (!response.ok) {
+      showReportError(response.error);
+      return;
+    }
+    renderReport(response.report);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const data = await storageGet(Object.values(STORAGE_KEYS));
+  const purpose = data[STORAGE_KEYS.PURPOSE] || "(설정 안 됨)";
+  const sessionId = data[STORAGE_KEYS.SESSION_ID];
+  const log = Array.isArray(data[STORAGE_KEYS.SESSION_LOG]) ? data[STORAGE_KEYS.SESSION_LOG] : [];
 
   document.getElementById("jjg-purpose").textContent = `목적: ${purpose}`;
   document.getElementById("jjg-total").textContent = String(log.length);
   document.getElementById("jjg-leaves").textContent = String(
-    log.filter((e) => e.action === "left_anyway").length
+    log.filter((entry) => entry.action === "left_anyway").length
   );
   document.getElementById("jjg-skipped").textContent = String(
-    log.filter((e) => e.action === "skipped").length
+    log.filter((entry) => entry.action === "skipped").length
   );
+  renderChain(log);
 
-  const chainEl = document.getElementById("jjg-chain");
-  if (log.length === 0) {
-    chainEl.innerHTML = '<div class="jjg-empty">아직 시청한 영상이 없어요.</div>';
-    return;
+  const cached = data[STORAGE_KEYS.SESSION_REPORT];
+  if (sessionId != null && cached?.sessionId === sessionId && cached.report) {
+    renderReport(cached.report);
   }
 
-  chainEl.innerHTML = log
-    .map((entry, idx) => {
-      const isLeft = entry.action === "left_anyway";
-      const isSkipped = entry.action === "skipped";
-      const cls = isLeft ? " left" : isSkipped ? " skipped" : "";
-      const icon = isLeft ? "⚠️ " : isSkipped ? "⏭️ " : "";
-      const reasonSuffix = isSkipped && entry.reason ? ` <small>(${escapeHtml(entry.reason)})</small>` : "";
-      const item = `<div class="jjg-chain-item${cls}">${icon}${escapeHtml(
-        entry.title || "(제목 없음)"
-      )}${reasonSuffix}</div>`;
-      const arrow = idx < log.length - 1 ? '<div class="jjg-chain-arrow">↓</div>' : "";
-      return item + arrow;
-    })
-    .join("");
+  document.getElementById("jjg-report-generate").addEventListener("click", () => requestReport(false));
+  document.getElementById("jjg-report-retry").addEventListener("click", () => requestReport(false));
+  document.getElementById("jjg-report-regenerate").addEventListener("click", () => requestReport(true));
 });
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}

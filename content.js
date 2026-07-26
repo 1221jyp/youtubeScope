@@ -6,6 +6,7 @@
     PURPOSE: "jjg_purpose",
     SESSION_ID: "jjg_session_id",
     SESSION_LOG: "jjg_session_log",
+    SESSION_REPORT: "jjg_session_report",
   };
 
   let lastProcessedVideoId = null;
@@ -62,6 +63,7 @@
       [STORAGE_KEYS.PURPOSE]: purpose,
       [STORAGE_KEYS.SESSION_ID]: Date.now(),
       [STORAGE_KEYS.SESSION_LOG]: [],
+      [STORAGE_KEYS.SESSION_REPORT]: null,
     });
   }
 
@@ -287,9 +289,9 @@ if(result.related){onWatchAnyway();}else{alert("AI가 이유까지 고려해도 
     }
   }
 
-  // background.js의 Ollama 요청 타임아웃(20초)보다 넉넉히 길게 잡아서,
+  // background.js의 Ollama 요청 타임아웃(60초)보다 넉넉히 길게 잡아서,
   // 배경 쪽이 구체적인 실패 사유를 만들어낼 시간을 준다.
-  function sendMessageWithTimeout(message, timeoutMs = 25000) {
+  function sendMessageWithTimeout(message, timeoutMs = 65000) {
     return new Promise((resolve) => {
       let settled = false;
       const timer = setTimeout(() => {
@@ -377,10 +379,19 @@ if(result.related){onWatchAnyway();}else{alert("AI가 이유까지 고려해도 
             title,
             related: false,
             action: "left_anyway",
+            reason: verdict.reason,
             ts: Date.now(),
           });
         },
-        () => {
+        async () => {
+          await appendLog({
+            videoId,
+            title,
+            related: false,
+            action: "went_back",
+            reason: verdict.reason,
+            ts: Date.now(),
+          });
           if (history.length > 1) {
             history.back();
           } else {
