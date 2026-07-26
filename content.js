@@ -245,12 +245,17 @@
         <div class="jjg-warning-reason">${escapeHtml(reason || "목적과 무관해 보여요")}</div>
         <div class="jjg-btn-row">
           <button class="jjg-btn-leave" id="jjg-btn-go-back">돌아가기</button>
-          <button class="jjg-btn-watch-anyway" id="jjg-btn-watch-anyway">그래도 볼게</button>
+          <textarea id="jjg-user-reason" placeholder="왜 이 영상을 봐야 하는지 입력하세요." style="width:100%;height:70px;margin:12px 0;"></textarea><button class="jjg-btn-watch-anyway" id="jjg-btn-watch-anyway">AI에게 제출</button>
         </div>
       </div>
     `;
     overlayState.el.querySelector("#jjg-btn-go-back").addEventListener("click", onGoBack);
-    overlayState.el.querySelector("#jjg-btn-watch-anyway").addEventListener("click", onWatchAnyway);
+    overlayState.el.querySelector("#jjg-btn-watch-anyway").addEventListener("click", async ()=>{
+const reason=overlayState.el.querySelector("#jjg-user-reason").value.trim();
+if(!reason){alert("이유를 입력해주세요.");return;}
+const result=await sendMessageWithTimeout({type:"JUDGE_REASON",purpose,title:extractTitle(),description:extractDescription(),userReason:reason});
+if(result.related){onWatchAnyway();}else{alert("AI가 이유까지 고려해도 관련 없는 영상으로 판단했습니다.");}
+});
   }
 
   function showToast(message) {

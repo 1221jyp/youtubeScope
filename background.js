@@ -183,7 +183,19 @@ async function handleJudgeVideo(message) {
   }
 }
 
+
+async function handleJudgeReason(message){
+ const {purpose,title,description,userReason}=message;
+ const {url,model}=await getOllamaConfig();
+ if(!model) return failOpen("Ollama 모델이 설정되지 않음");
+ return callOllama(url,model,purpose+"\n사용자 이유: "+userReason+"\n이유를 고려해 최종 판정.",title,description);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message && message.type === "JUDGE_REASON") {
+    handleJudgeReason(message).then(sendResponse);
+    return true;
+  }
   if (message && message.type === "JUDGE_VIDEO") {
     handleJudgeVideo(message).then(sendResponse);
     return true; // keep the message channel open for the async response
