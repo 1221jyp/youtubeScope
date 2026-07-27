@@ -40,9 +40,12 @@ function renderChain(log) {
     } else if (entry.action === "skipped") {
       item.classList.add("skipped");
       icon = "⏭️ ";
+    } else if (entry.action === "blocked") {
+      item.classList.add("blocked");
+      icon = "🚫 ";
     }
     item.textContent = `${icon}${entry.title || "(제목 없음)"}`;
-    if (entry.action === "skipped" && entry.reason) {
+    if ((entry.action === "skipped" || entry.action === "blocked") && entry.reason) {
       appendTextElement(item, "small", "", ` (${entry.reason})`);
     }
     chainEl.appendChild(item);
@@ -150,6 +153,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   );
   document.getElementById("jjg-skipped").textContent = String(
     log.filter((entry) => entry.action === "skipped").length
+  );
+  document.getElementById("jjg-blocked").textContent = String(
+    log.filter((entry) => entry.action === "blocked").length
   );
   renderChain(log);
 

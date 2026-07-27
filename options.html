@@ -21,11 +21,8 @@
       margin: 0 0 16px;
       line-height: 1.6;
     }
-    code {
-      background: #f2f2f2;
-      padding: 1px 5px;
-      border-radius: 4px;
-      font-size: 11px;
+    a {
+      color: #cc0000;
     }
     label {
       font-size: 13px;
@@ -33,7 +30,8 @@
       display: block;
       margin-bottom: 6px;
     }
-    input[type="text"] {
+    input[type="text"],
+    input[type="password"] {
       width: 100%;
       box-sizing: border-box;
       padding: 10px 12px;
@@ -71,23 +69,20 @@
   </style>
 </head>
 <body>
-  <h1>조준경 설정 (Ollama)</h1>
-  <p>영상 판정에 로컬 Ollama를 사용합니다. 아무 값도 외부로 전송되지 않고,
-    이 컴퓨터에서 돌고 있는 Ollama 서버로만 요청을 보냅니다.</p>
+  <h1>조준경 설정 (Gemini)</h1>
+  <p>영상 판정에 Google Gemini API를 사용합니다. 판정 시 영상 제목/설명 등이
+    Google Gemini API로 전송됩니다.</p>
 
   <div class="jjg-note">
-    ⚠️ 먼저 <code>ollama serve</code>로 서버를 켜두고, 사용할 모델을
-    <code>ollama pull llama3.1</code> 같은 명령으로 받아두세요. tool(function) calling을
-    지원하는 모델이어야 합니다 (예: llama3.1, qwen2.5, mistral-nemo).<br />
-    확장에서 요청이 CORS로 막히면 <code>OLLAMA_ORIGINS=*</code> 환경변수를 설정하고
-    Ollama를 재시작해보세요.
+    ⚠️ API 키는 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>에서
+    발급받으세요. 입력한 키는 이 브라우저의 저장소에만 보관됩니다.
   </div>
 
-  <label for="jjg-ollama-url">Ollama 서버 주소</label>
-  <input id="jjg-ollama-url" type="text" placeholder="http://localhost:11434" />
+  <label for="jjg-gemini-key">Gemini API 키</label>
+  <input id="jjg-gemini-key" type="password" placeholder="AIza..." autocomplete="off" />
 
-  <label for="jjg-ollama-model">모델 이름</label>
-  <input id="jjg-ollama-model" type="text" placeholder="예: llama3.1" />
+  <label for="jjg-gemini-model">모델 이름</label>
+  <input id="jjg-gemini-model" type="text" placeholder="gemini-flash-latest" />
 
   <button id="jjg-save-btn">저장</button>
   <span id="jjg-saved-msg">저장됨 ✓</span>

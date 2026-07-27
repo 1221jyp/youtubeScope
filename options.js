@@ -1,22 +1,25 @@
-const OLLAMA_URL_KEY = "jjg_ollama_url";
-const OLLAMA_MODEL_KEY = "jjg_ollama_model";
-const DEFAULT_URL = "http://localhost:11434";
+const GEMINI_API_KEY_KEY = "jjg_gemini_api_key";
+const GEMINI_MODEL_KEY = "jjg_gemini_model";
+const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const urlInput = document.getElementById("jjg-ollama-url");
-  const modelInput = document.getElementById("jjg-ollama-model");
+  const geminiKeyInput = document.getElementById("jjg-gemini-key");
+  const geminiModelInput = document.getElementById("jjg-gemini-model");
 
   const data = await new Promise((resolve) =>
-    chrome.storage.local.get([OLLAMA_URL_KEY, OLLAMA_MODEL_KEY], resolve)
+    chrome.storage.local.get([GEMINI_API_KEY_KEY, GEMINI_MODEL_KEY], resolve)
   );
-  urlInput.value = data[OLLAMA_URL_KEY] || DEFAULT_URL;
-  modelInput.value = data[OLLAMA_MODEL_KEY] || "";
+  geminiKeyInput.value = data[GEMINI_API_KEY_KEY] || "";
+  geminiModelInput.value = data[GEMINI_MODEL_KEY] || DEFAULT_GEMINI_MODEL;
 
   document.getElementById("jjg-save-btn").addEventListener("click", async () => {
-    const url = urlInput.value.trim() || DEFAULT_URL;
-    const model = modelInput.value.trim();
+    const geminiKey = geminiKeyInput.value.trim();
+    const geminiModel = geminiModelInput.value.trim() || DEFAULT_GEMINI_MODEL;
     await new Promise((resolve) =>
-      chrome.storage.local.set({ [OLLAMA_URL_KEY]: url, [OLLAMA_MODEL_KEY]: model }, resolve)
+      chrome.storage.local.set(
+        { [GEMINI_API_KEY_KEY]: geminiKey, [GEMINI_MODEL_KEY]: geminiModel },
+        resolve
+      )
     );
     const msg = document.getElementById("jjg-saved-msg");
     msg.style.display = "inline";

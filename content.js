@@ -72,6 +72,16 @@
     const log = data[STORAGE_KEYS.SESSION_LOG] || [];
     log.push(entry);
     await storageSet({ [STORAGE_KEYS.SESSION_LOG]: log });
+    return log.length - 1;
+  }
+
+  // 차단된 시점에 남긴 로그 항목을, 사용자가 나중에 내리는 선택(돌아가기/그래도 시청)으로 갱신한다.
+  async function updateLogEntry(index, updates) {
+    const data = await storageGet([STORAGE_KEYS.SESSION_LOG]);
+    const log = data[STORAGE_KEYS.SESSION_LOG] || [];
+    if (!log[index]) return;
+    Object.assign(log[index], updates);
+    await storageSet({ [STORAGE_KEYS.SESSION_LOG]: log });
   }
 
   // ---------- purpose modal ----------
@@ -289,7 +299,7 @@ if(result.related){onWatchAnyway();}else{alert("AI가 이유까지 고려해도 
     }
   }
 
-  // background.js의 Ollama 요청 타임아웃(60초)보다 넉넉히 길게 잡아서,
+  // background.js의 Gemini 요청 타임아웃(60초)보다 넉넉히 길게 잡아서,
   // 배경 쪽이 구체적인 실패 사유를 만들어낼 시간을 준다.
   function sendMessageWithTimeout(message, timeoutMs = 65000) {
     return new Promise((resolve) => {
@@ -368,30 +378,26 @@ if(result.related){onWatchAnyway();}else{alert("AI가 이유까지 고려해도 
         ts: Date.now(),
       });
     } else {
+      // 사용자가 아무 버튼도 누르지 않고 다른 영상으로 넘어가도 기록에 남도록,
+      // 차단된 시점에 먼저 기록하고 이후 선택에 따라 같은 항목을 갱신한다.
+      const blockedIndex = await appendLog({
+        videoId,
+        title,
+        related: false,
+        action: "blocked",
+        reason: verdict.reason,
+        ts: Date.now(),
+      });
       setOverlayWarning(
         purpose,
         verdict.reason,
         async () => {
           removeOverlay();
           playVideo();
-          await appendLog({
-            videoId,
-            title,
-            related: false,
-            action: "left_anyway",
-            reason: verdict.reason,
-            ts: Date.now(),
-          });
+          await updateLogEntry(blockedIndex, { action: "left_anyway" });
         },
         async () => {
-          await appendLog({
-            videoId,
-            title,
-            related: false,
-            action: "went_back",
-            reason: verdict.reason,
-            ts: Date.now(),
-          });
+          await updateLogEntry(blockedIndex, { action: "went_back" });
           if (history.length > 1) {
             history.back();
           } else {
