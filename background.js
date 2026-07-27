@@ -101,7 +101,7 @@ function parseToolArguments(data) {
   return args;
 }
 
-async function callOllama(url, model, purpose, title, description) {
+async function callOllama(url, model, purpose, title, description, userReason = "") {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
@@ -138,13 +138,18 @@ async function callOllama(url, model, purpose, title, description) {
               `2. 같은 넓은 분야라는 이유만으로 true로 판정하지 않는다. 예를 들어 코딩 공부 목적에서 취업 후기나 개발자 브이로그는 false다.\n` +
               `3. 오락, 쇼핑, 음악, 브이로그, 잡담, 밈, 챌린지, 후기 콘텐츠는 목적이 바로 그 콘텐츠인 경우가 아니면 false다.\n` +
               `4. 애매하거나 느슨하게 도움될 가능성만 있으면 false다.\n` +
-              `5. 제목이 없고 설명만으로도 판단할 수 없을 때만 안전하게 true다.`,
+              `5. 제목이 없고 설명만으로도 판단할 수 없을 때만 안전하게 true다.\n` +
+              `6. userReason이 있다면 사용자가 제시한 시청 이유이다.\n` +
+              `7. userReason이 목적 달성에 직접 도움이 되면 true로 판정할 수 있다.\n` +
+              `8. 단순 재미, 추천, 심심해서 등의 이유는 false다.\n` +
+              `9. userReason과 영상 정보를 함께 고려하여 최종 판단한다.`,
           },
           {
             role: "user",
             content: JSON.stringify({
               task: "아래 영상이 현재 목적과 직접 관련 있는지 판정",
               purpose,
+              userReason,
               videoTitle: title || "(제목 없음)",
               videoDescription: (description || "").slice(0, 500),
             }),
@@ -532,7 +537,7 @@ async function handleJudgeReason(message){
  const {purpose,title,description,userReason}=message;
  const {url,model}=await getOllamaConfig();
  if(!model) return failOpen("Ollama 모델이 설정되지 않음");
- return callOllama(url,model,purpose+"\n사용자 이유: "+userReason+"\n이유를 고려해 최종 판정.",title,description);
+ return callOllama(url, model, purpose, title, description, userReason);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
