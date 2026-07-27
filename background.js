@@ -2,21 +2,15 @@
 // 역할: Gemini API 호출(judge), 판정 캐싱. 상태는 절대 변수에 들고 있지 않고 매번
 // chrome.storage.local에서 읽고 쓴다 (service worker는 언제든 잠들 수 있음).
 
+if (typeof importScripts === "function") importScripts("schema.js");
+
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-flash-latest";
 const API_TIMEOUT_MS = 60000;
 const REPORT_TIMEOUT_MS = 90000;
 const VERDICT_CACHE_VERSION = "v4";
 
-const STORAGE_KEYS = {
-  PURPOSE: "jjg_purpose",
-  SESSION_ID: "jjg_session_id",
-  SESSION_LOG: "jjg_session_log",
-  SESSION_REPORT: "jjg_session_report",
-  GEMINI_API_KEY: "jjg_gemini_api_key",
-  GEMINI_MODEL: "jjg_gemini_model",
-  VERDICT_CACHE: "jjg_verdict_cache",
-};
+const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
 
 const reportRequests = new Map();
 

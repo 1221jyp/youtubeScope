@@ -2,12 +2,7 @@
 // 역할: 목적 선언 모달, URL 변화 감지, 영상 판정 요청, 오버레이 표시, 이탈 체인 기록.
 
 (() => {
-  const STORAGE_KEYS = {
-    PURPOSE: "jjg_purpose",
-    SESSION_ID: "jjg_session_id",
-    SESSION_LOG: "jjg_session_log",
-    SESSION_REPORT: "jjg_session_report",
-  };
+  const { STORAGE_KEYS, createSession } = globalThis.JJG_SCHEMA;
 
   let lastProcessedVideoId = null;
   let overlayState = null; // { el, container, cleanup }
@@ -59,11 +54,16 @@
   }
 
   async function startNewSession(purpose) {
+    const session = createSession();
     await storageSet({
       [STORAGE_KEYS.PURPOSE]: purpose,
-      [STORAGE_KEYS.SESSION_ID]: Date.now(),
+      [STORAGE_KEYS.SESSION_ID]: session.sessionId,
+      [STORAGE_KEYS.SESSION_STATUS]: session.status,
+      [STORAGE_KEYS.SESSION_STARTED_AT]: session.startedAt,
+      [STORAGE_KEYS.SESSION_ENDED_AT]: session.endedAt,
       [STORAGE_KEYS.SESSION_LOG]: [],
       [STORAGE_KEYS.SESSION_REPORT]: null,
+      [STORAGE_KEYS.COMPLETION_RESULT]: null,
     });
   }
 

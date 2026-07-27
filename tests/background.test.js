@@ -69,6 +69,7 @@ function createHarness(initialStorage = {}) {
     clearTimeout,
     fetch: (...args) => fetchImpl(...args),
   });
+  vm.runInContext(fs.readFileSync("schema.js", "utf8"), context);
   vm.runInContext(fs.readFileSync("background.js", "utf8"), context);
 
   return {

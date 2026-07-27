@@ -1,9 +1,4 @@
-const STORAGE_KEYS = {
-  PURPOSE: "jjg_purpose",
-  SESSION_ID: "jjg_session_id",
-  SESSION_LOG: "jjg_session_log",
-  SESSION_REPORT: "jjg_session_report",
-};
+const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
 
 let reportLoading = false;
 

@@ -1,5 +1,6 @@
-const GEMINI_API_KEY_KEY = "jjg_gemini_api_key";
-const GEMINI_MODEL_KEY = "jjg_gemini_model";
+const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
+const GEMINI_API_KEY_KEY = STORAGE_KEYS.GEMINI_API_KEY;
+const GEMINI_MODEL_KEY = STORAGE_KEYS.GEMINI_MODEL;
 const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 
 document.addEventListener("DOMContentLoaded", async () => {
