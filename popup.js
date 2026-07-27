@@ -26,11 +26,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       const isLeft = entry.action === "left_anyway";
       const isSkipped = entry.action === "skipped";
       const cls = isLeft ? " left" : isSkipped ? " skipped" : "";
-      const icon = isLeft ? "⚠️ " : isSkipped ? "⏭️ " : "";
+      const icon = isLeft ? "⚠️ " : isSkipped ? "⏭️ " : "✅ ";
       const reasonSuffix = isSkipped && entry.reason ? ` <small>(${escapeHtml(entry.reason)})</small>` : "";
-      const item = `<div class="jjg-chain-item${cls}">${icon}${escapeHtml(
+      
+      const item = `<div class="jjg-chain-item${cls}">${icon}<strong>${escapeHtml(
         entry.title || "(제목 없음)"
-      )}${reasonSuffix}</div>`;
+      )}</strong>${reasonSuffix}</div>`;
       const arrow = idx < log.length - 1 ? '<div class="jjg-chain-arrow">↓</div>' : "";
       return item + arrow;
     })

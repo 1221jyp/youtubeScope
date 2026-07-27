@@ -1,5 +1,5 @@
 // 조준경 content script (isolated world)
-// 역할: 목적 선언 모달, URL 변화 감지, 영상 판정 요청, 오버레이 표시, 이탈 체인 기록.
+// 역할: 목적 선언 모달, URL 변화 감지, 5차원 메타데이터(제목, 설명, 해시태그, 채널명, AI요약/목차) + 자막(Transcript) 실시간 추출 및 판정 요청.
 
 (() => {
   const STORAGE_KEYS = {
@@ -9,12 +9,10 @@
   };
 
   let lastProcessedVideoId = null;
-  let overlayState = null; // { el, container, cleanup }
+  let overlayState = null;
   let navigateDebounceTimer = null;
 
   // ---------- storage helpers ----------
-  // 확장을 재로드하면 이미 열려있던 탭의 content script는 컨텍스트가 무효화된다.
-  // 그 상태에서 chrome.storage 호출은 예외를 던지므로 조용히 무시한다 (탭을 새로고침하면 해결됨).
   function isExtensionContextValid() {
     return !!(typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id);
   }
@@ -38,6 +36,7 @@
       }
     });
   }
+
   function storageSet(obj) {
     return new Promise((resolve) => {
       if (!isExtensionContextValid()) {
@@ -74,7 +73,8 @@
 
   // ---------- purpose modal ----------
   function showPurposeModal(prefill = "") {
-    if (document.getElementById("jjg-purpose-modal-backdrop")) return;
+    const existing = document.getElementById("jjg-purpose-modal-backdrop");
+    if (existing) existing.remove();
 
     const backdrop = document.createElement("div");
     backdrop.id = "jjg-purpose-modal-backdrop";
@@ -83,31 +83,53 @@
         <h2>지금 유튜브에서 뭘 하려고 하나요?</h2>
         <p>목적을 한 줄로 적으면, 벗어난 영상을 볼 때 알려드릴게요.</p>
         <input id="jjg-purpose-input" type="text" placeholder="예) 자료구조 해시테이블 공부" maxlength="80" />
-        <button id="jjg-purpose-submit">목적 설정하고 시작</button>
+        <button id="jjg-purpose-submit" type="button">목적 설정하고 시작</button>
       </div>
     `;
     document.body.appendChild(backdrop);
 
     const input = backdrop.querySelector("#jjg-purpose-input");
-    input.value = prefill;
-    input.focus();
+    const submitBtn = backdrop.querySelector("#jjg-purpose-submit");
 
-    const submit = async () => {
+    input.value = prefill;
+    setTimeout(() => input.focus(), 100);
+
+    const submit = async (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
       const value = input.value.trim();
       if (!value) {
         input.focus();
         return;
       }
-      await startNewSession(value);
-      backdrop.remove();
+
+      if (backdrop && backdrop.parentNode) {
+        backdrop.parentNode.removeChild(backdrop);
+      }
+
+      try {
+        await startNewSession(value);
+      } catch (err) {
+        console.warn("[조준경] 목적 저장 실패:", err);
+      }
+
       ensureChangePurposeButton();
-      // 목적을 새로 설정한 시점에 현재 페이지가 /watch면 즉시 재판정
-      maybeHandleWatchPage(true);
+
+      try {
+        maybeHandleWatchPage(true);
+      } catch (err) {
+        console.warn("[조준경] watchPage 처리 실패:", err);
+      }
     };
 
-    backdrop.querySelector("#jjg-purpose-submit").addEventListener("click", submit);
+    submitBtn.addEventListener("click", submit);
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
+      if (e.key === "Enter") {
+        submit(e);
+      }
     });
   }
 
@@ -123,7 +145,7 @@
     document.body.appendChild(btn);
   }
 
-  // ---------- title/description extraction ----------
+  // ---------- metadata & transcript extraction ----------
   function extractTitle() {
     const meta = document.querySelector(SELECTORS.VIDEO_TITLE_META);
     if (meta && meta.content && meta.content.trim()) return meta.content.trim();
@@ -134,9 +156,127 @@
     return "";
   }
 
+  // 영상 설명 추출 (meta 태그 + 유튜브 실제 DOM 설명 영역 전면 교차 추출)
   function extractDescription() {
-    const meta = document.querySelector(SELECTORS.VIDEO_DESCRIPTION_META);
-    return meta && meta.content ? meta.content.trim() : "";
+    let text = "";
+    
+    // 1차: DOM 영역 (유튜브 SPA 페이지에서 가장 최신의 실제 설명 텍스트)
+    for (const sel of (SELECTORS.VIDEO_DESCRIPTION_DOM_CANDIDATES || [])) {
+      const el = document.querySelector(sel);
+      if (el && el.textContent && el.textContent.trim()) {
+        const domText = el.textContent.trim();
+        if (domText.length > text.length) text = domText;
+      }
+    }
+
+    // 2차: meta 태그
+    if (!text) {
+      const meta = document.querySelector(SELECTORS.VIDEO_DESCRIPTION_META);
+      if (meta && meta.content && meta.content.trim()) {
+        text = meta.content.trim();
+      }
+    }
+
+    return text;
+  }
+
+  // 영상 키워드 및 해시태그 (#물리학, #삼체 등) 추출
+  function extractKeywords() {
+    const keywords = new Set();
+    
+    // 1차: 메타 태그
+    const meta = document.querySelector(SELECTORS.VIDEO_KEYWORDS_META);
+    if (meta && meta.content) {
+      meta.content.split(",").forEach(k => {
+        if (k.trim()) keywords.add(k.trim());
+      });
+    }
+    
+    // 2차: DOM 영역의 해시태그 태그 (#물리학 등)
+    for (const sel of (SELECTORS.HASHTAG_DOM_CANDIDATES || [])) {
+      const els = document.querySelectorAll(sel);
+      if (els && els.length > 0) {
+        els.forEach(e => {
+          const txt = e.textContent.trim();
+          if (txt) keywords.add(txt);
+        });
+      }
+    }
+
+    return Array.from(keywords).join(", ");
+  }
+
+  function extractChannel() {
+    const meta = document.querySelector(SELECTORS.CHANNEL_NAME_META);
+    if (meta && meta.content && meta.content.trim()) return meta.content.trim();
+    for (const sel of (SELECTORS.CHANNEL_NAME_DOM_CANDIDATES || [])) {
+      const el = document.querySelector(sel);
+      if (el && el.textContent && el.textContent.trim()) return el.textContent.trim();
+    }
+    return "";
+  }
+
+  // 유튜브 AI 요약 / 챕터 목차 / 타임스탬프 스니펫 추출
+  function extractAiSummary() {
+    const summaryParts = [];
+    for (const sel of (SELECTORS.AI_SUMMARY_DOM_CANDIDATES || [])) {
+      const els = document.querySelectorAll(sel);
+      if (els && els.length > 0) {
+        els.forEach(e => {
+          const txt = e.textContent.trim();
+          if (txt && !summaryParts.includes(txt)) summaryParts.push(txt);
+        });
+      }
+    }
+    return summaryParts.join(" ");
+  }
+
+  // 유튜브 영상 음성 자막(Transcript) 스크립트 추출
+  async function extractTranscriptText(videoId) {
+    try {
+      // 1. window.ytInitialPlayerResponse 자막 트랙 확인
+      if (typeof window !== "undefined" && window.ytInitialPlayerResponse) {
+        const captionTracks = window.ytInitialPlayerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (captionTracks && captionTracks.length > 0) {
+          const baseUrl = captionTracks[0].baseUrl;
+          if (baseUrl) {
+            const res = await fetch(baseUrl);
+            const xmlText = await res.text();
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+            const textNodes = xmlDoc.querySelectorAll("text");
+            const lines = Array.from(textNodes).map(n => n.textContent.trim()).filter(Boolean);
+            if (lines.length > 0) return lines.slice(0, 300).join(" ");
+          }
+        }
+      }
+
+      // 2. DOM script 태그 내 captionTracks 파싱 (폴백)
+      const scripts = Array.from(document.querySelectorAll("script"));
+      for (const script of scripts) {
+        if (script.textContent && script.textContent.includes("captionTracks")) {
+          const match = script.textContent.match(/"captionTracks":\s*(\[.*?\])/);
+          if (match) {
+            const tracks = JSON.parse(match[1]);
+            if (tracks && tracks.length > 0) {
+              const baseUrl = tracks[0].baseUrl;
+              if (baseUrl) {
+                const res = await fetch(baseUrl);
+                const xmlText = await res.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                const textNodes = xmlDoc.querySelectorAll("text");
+                const lines = Array.from(textNodes).map(n => n.textContent.trim()).filter(Boolean);
+                if (lines.length > 0) return lines.slice(0, 300).join(" ");
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[조준경] 자막 추출 참고:", err);
+    }
+    return "";
   }
 
   function getMetaVideoId() {
@@ -144,8 +284,7 @@
     return meta ? meta.content : null;
   }
 
-  // 내비게이션 직후 meta[name="title"]이 이전 영상 값을 잠깐 들고 있는 경우가 있어서,
-  // meta[itemprop="videoId"]가 목표 videoId와 일치할 때만 "신선한" 제목으로 신뢰한다.
+  // 유튜브 DOM 요소들이 다 그려질 때까지 대기
   function waitForTitle(videoId, { retries = 15, intervalMs = 200 } = {}) {
     return new Promise((resolve) => {
       let attempts = 0;
@@ -205,7 +344,7 @@
     el.innerHTML = `
       <div class="jjg-box">
         <div class="jjg-spinner"></div>
-        <div class="jjg-status">목적과 관련 있는 영상인지 확인 중...</div>
+        <div class="jjg-status">5차원 AI(제목·설명·채널·해시태그·AI요약) 분석 중...</div>
       </div>
     `;
     document.body.appendChild(el);
@@ -239,18 +378,20 @@
 
   function setOverlayWarning(purpose, reason, onWatchAnyway, onGoBack) {
     if (!overlayState) return;
-    overlayState.el.innerHTML = `
-      <div class="jjg-box">
-        <div class="jjg-warning-title">이거 "${escapeHtml(purpose)}"이랑 관련 있어?</div>
-        <div class="jjg-warning-reason">${escapeHtml(reason || "목적과 무관해 보여요")}</div>
-        <div class="jjg-btn-row">
-          <button class="jjg-btn-leave" id="jjg-btn-go-back">돌아가기</button>
-          <button class="jjg-btn-watch-anyway" id="jjg-btn-watch-anyway">그래도 볼게</button>
-        </div>
+    const box = overlayState.el.querySelector(".jjg-box");
+    if (!box) return;
+
+    box.innerHTML = `
+      <div class="jjg-warning-title">이거 "${escapeHtml(purpose)}"이랑 관련 있어?</div>
+      <div class="jjg-warning-reason">⚠️ ${escapeHtml(reason || "목적과 무관해 보여요")}</div>
+      <div class="jjg-btn-row">
+        <button class="jjg-btn-leave" id="jjg-btn-go-back">🎯 돌아가기</button>
+        <button class="jjg-btn-watch-anyway" id="jjg-btn-watch-anyway">그래도 볼게</button>
       </div>
     `;
-    overlayState.el.querySelector("#jjg-btn-go-back").addEventListener("click", onGoBack);
-    overlayState.el.querySelector("#jjg-btn-watch-anyway").addEventListener("click", onWatchAnyway);
+
+    box.querySelector("#jjg-btn-go-back").addEventListener("click", onGoBack);
+    box.querySelector("#jjg-btn-watch-anyway").addEventListener("click", onWatchAnyway);
   }
 
   function showToast(message) {
@@ -282,8 +423,6 @@
     }
   }
 
-  // background.js의 Ollama 요청 타임아웃(20초)보다 넉넉히 길게 잡아서,
-  // 배경 쪽이 구체적인 실패 사유를 만들어낼 시간을 준다.
   function sendMessageWithTimeout(message, timeoutMs = 25000) {
     return new Promise((resolve) => {
       let settled = false;
@@ -332,9 +471,26 @@
 
     showOverlay();
     const title = await waitForTitle(videoId);
-    // 대기 중 다른 영상으로 또 넘어갔으면 이 판정은 버린다.
     if (getVideoIdFromUrl(location.href) !== videoId) return;
+    
+    // 유튜브 DOM 요소 렌더링을 위해 짧은 대기 후 수집
+    await new Promise(r => setTimeout(r, 250));
+
     const description = extractDescription();
+    const keywords = extractKeywords();
+    const channel = extractChannel();
+    const aiSummary = extractAiSummary();
+    const transcriptText = await extractTranscriptText(videoId);
+
+    console.log("[조준경] 수집된 5차원 메타데이터:", {
+      title,
+      channel,
+      keywords,
+      descriptionLength: description.length,
+      descriptionSnippet: description.slice(0, 100),
+      aiSummaryLength: aiSummary.length,
+      transcriptLength: transcriptText.length
+    });
 
     const verdict = await sendMessageWithTimeout({
       type: "JUDGE_VIDEO",
@@ -342,9 +498,13 @@
       videoId,
       title,
       description,
+      keywords,
+      channel,
+      aiSummary,
+      transcriptText
     });
 
-    if (getVideoIdFromUrl(location.href) !== videoId) return; // 판정 도중 페이지 이동
+    if (getVideoIdFromUrl(location.href) !== videoId) return;
 
     if (verdict.related) {
       removeOverlay();
@@ -355,6 +515,7 @@
       await appendLog({
         videoId,
         title,
+        channel,
         related: true,
         action: verdict.failOpen ? "skipped" : "watched",
         reason: verdict.failOpen ? verdict.reason : undefined,
@@ -370,6 +531,7 @@
           await appendLog({
             videoId,
             title,
+            channel,
             related: false,
             action: "left_anyway",
             ts: Date.now(),

@@ -1,11 +1,13 @@
 // 조준경 background service worker
-// 역할: 로컬 Ollama API 호출(judge), 판정 캐싱. 상태는 절대 변수에 들고 있지 않고 매번
-// chrome.storage.local에서 읽고 쓴다 (service worker는 언제든 잠들 수 있음).
+// 역할: 1차 로컬 5차원 AI 엔진(0.3ms) + 2차 Gemini 2.0 Flash / Ollama LLM (자막 스크립트 정밀 분석)
+
+importScripts("similarity-engine.js");
 
 const OLLAMA_DEFAULT_URL = "http://localhost:11434";
-const API_TIMEOUT_MS = 20000; // 로컬 추론은 느릴 수 있어 넉넉히 잡음
+const API_TIMEOUT_MS = 20000;
 
 const STORAGE_KEYS = {
+  GEMINI_KEY: "jjg_gemini_api_key",
   OLLAMA_URL: "jjg_ollama_url",
   OLLAMA_MODEL: "jjg_ollama_model",
   VERDICT_CACHE: "jjg_verdict_cache",
@@ -22,11 +24,12 @@ function failOpen(reason) {
   return { related: true, reason, failOpen: true };
 }
 
-async function getOllamaConfig() {
-  const data = await storageGet([STORAGE_KEYS.OLLAMA_URL, STORAGE_KEYS.OLLAMA_MODEL]);
+async function getAiConfig() {
+  const data = await storageGet([STORAGE_KEYS.GEMINI_KEY, STORAGE_KEYS.OLLAMA_URL, STORAGE_KEYS.OLLAMA_MODEL]);
   return {
-    url: (data[STORAGE_KEYS.OLLAMA_URL] || OLLAMA_DEFAULT_URL).replace(/\/$/, ""),
-    model: data[STORAGE_KEYS.OLLAMA_MODEL] || "",
+    geminiKey: data[STORAGE_KEYS.GEMINI_KEY] || "",
+    ollamaUrl: (data[STORAGE_KEYS.OLLAMA_URL] || OLLAMA_DEFAULT_URL).replace(/\/$/, ""),
+    ollamaModel: data[STORAGE_KEYS.OLLAMA_MODEL] || "",
   };
 }
 
@@ -43,7 +46,56 @@ function cacheKeyFor(purpose, videoId) {
   return `${purpose}||${videoId}`;
 }
 
-async function callOllama(url, model, purpose, title, description) {
+// Gemini 2.0 Flash API 2차 정밀 검증 엔진 (자막/대사/설명 전체 심층 분석)
+async function callGeminiApi(apiKey, purpose, title, description, keywords, channel, aiSummary, transcriptText) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  
+  const promptText = `
+너는 사용자의 학습 목표와 유튜브 영상의 실제 대사 자막/메타데이터를 대조해 딴짓 여부를 엄격하게 판정하는 전문가 AI 필터야.
+
+[사용자의 현재 학습/공부 목표]: "${purpose}"
+
+[영상의 실제 정보]:
+- 제목: ${title || "(없음)"}
+- 채널: ${channel || "(없음)"}
+- 키워드/태그: ${keywords || "(없음)"}
+- AI요약/목차: ${aiSummary || "(없음)"}
+- 영상 설명: ${(description || "").slice(0, 500)}
+- 영상 실제 대사/자막(Transcript): ${(transcriptText || "(자막 없음)").slice(0, 1500)}
+
+[판정 지침]:
+1. 영상의 대사(Transcript)나 설명/요약/제목에 나오는 개념(예: '삼체 문제', '카오스 이론', '라그랑주 점', '나비 효과' 등)이 사용자의 목표(예: '물리')의 하위 학문이나 관련 분야라면 적극적으로 related: true 판정을 내린다.
+2. 제목에 'feat'이나 영화/넷플릭스 언급이 있더라도, 실제 영상 내용이 과학/물리/학술 해설이라면 오락으로 치부하지 말고 related: true로 승인한다.
+3. 순수한 오락, 일상 브이로그, 아이돌 MV, 먹방, 단순 게임 하이라이트, 쇼핑 리뷰만 related: false로 차단한다.
+4. 반드시 JSON 형식으로만 응답해: {"related": boolean, "reason": "15자 이내 한국어 사유"}
+`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: promptText }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini API Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini API 빈 응답");
+
+  const parsed = JSON.parse(text);
+  return {
+    related: !!parsed.related,
+    reason: parsed.reason || (parsed.related ? "목표 부합 영상" : "목표와 무관한 영상"),
+    method: "GEMINI_2.0_FLASH_LLM"
+  };
+}
+
+async function callOllama(url, model, purpose, title, description, keywords, channel, aiSummary, transcriptText) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
@@ -55,29 +107,20 @@ async function callOllama(url, model, purpose, title, description) {
       body: JSON.stringify({
         model,
         stream: false,
-        keep_alive: "30m", // 판정할 때마다 모델을 다시 로드하지 않도록 세션 내내 메모리에 유지
+        keep_alive: "30m",
         messages: [
           {
             role: "user",
             content:
-              `너는 유튜브 영상 제목/설명만 보고 사용자의 목적과 관련 있는지 냉정하게 판정하는 필터야.\n\n` +
-              `판정 예시:\n` +
-              `- 목적: "자료구조 해시테이블 공부" / 제목: "해시테이블 개념과 구현 - 자료구조 강의 8강" → related: true\n` +
-              `- 목적: "자료구조 해시테이블 공부" / 제목: "50만원 미만 사무용 의자 추천 Best4" → related: false\n` +
-              `- 목적: "자료구조 해시테이블 공부" / 제목: "Pretty Girl - RESCENE(린센드) MV" → related: false\n` +
-              `- 목적: "자료구조 해시테이블 공부" / 제목: "아이돌 안무가 마이클 유 MASTER CLASS" → related: false\n` +
-              `- 목적: "SQL 공부" / 제목: "SQL 조인(JOIN) 종류 완벽 정리" → related: true\n` +
-              `- 목적: "SQL 공부" / 제목: "오늘 브이로그: 카페 투어" → related: false\n\n` +
-              `이제 실제로 판정할 대상:\n` +
               `사용자의 현재 목적: "${purpose}"\n` +
               `영상 제목: ${title || "(제목 없음)"}\n` +
-              `영상 설명: ${(description || "").slice(0, 500)}\n\n` +
+              `채널 이름: ${channel || "(채널 없음)"}\n` +
+              `영상 설명: ${(description || "").slice(0, 500)}\n` +
+              `영상 자막 대사: ${(transcriptText || "").slice(0, 800)}\n\n` +
               `규칙:\n` +
-              `1. 제목/설명에 목적과 직접 연결되는 구체적인 내용이 없으면 억지로 연관성을 찾지 말고 false.\n` +
-              `2. 오락, 쇼핑, 음악, 브이로그, 잡담, 밈, 챌린지 콘텐츠는 목적과 명시적으로 겹치지 않는 한 무조건 false.\n` +
-              `3. "왠지 도움될 것 같다" 같은 느슨한 연결은 false로 처리. 확실한 경우만 true.\n` +
-              `4. 제목이 "(제목 없음)"이면 판단 불가이니 true.\n` +
-              `5. 반드시 verdict 도구를 호출해서 답해. 도구 호출 없이 일반 텍스트로 답하지 마.`,
+              `1. 물리/과학/학술 주제(삼체문제, 카오스이론 등)는 사용자의 목적과 관련 있으면 related: true.\n` +
+              `2. 순수 오락, 브이로그, 게임 영상만 false.\n` +
+              `3. 반드시 verdict 도구를 호출해서 답해.`,
           },
         ],
         tools: [
@@ -101,77 +144,82 @@ async function callOllama(url, model, purpose, title, description) {
       signal: controller.signal,
     });
   } catch (err) {
-    if (err && err.name === "AbortError") {
-      throw new Error("응답 시간 초과");
-    }
-    console.warn("[조준경] Ollama fetch 실패:", err && err.name, err && err.message, "| url:", url);
-    throw new Error("Ollama 서버에 연결할 수 없음");
+    if (err && err.name === "AbortError") throw new Error("응답 시간 초과");
+    throw new Error("Ollama 서버 연결 실패");
   } finally {
     clearTimeout(timer);
   }
 
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    console.warn("[조준경] Ollama API 오류", res.status, errBody);
-    if (res.status === 404) {
-      throw new Error("모델을 찾을 수 없음(pull 필요)");
-    }
-    throw new Error(`Ollama API 오류(${res.status})`);
-  }
+  if (!res.ok) throw new Error(`Ollama API 오류(${res.status})`);
 
   const data = await res.json();
-
-  // 정상 경로: 모델이 tool_calls로 응답
   let args = data.message?.tool_calls?.[0]?.function?.arguments;
 
-  // 일부 모델은 arguments를 문자열로 줄 수 있어 방어적으로 파싱 (2차 방어)
   if (typeof args === "string") {
-    try {
-      args = JSON.parse(args);
-    } catch {
-      args = null;
-    }
-  }
-
-  // 도구 호출 없이 본문 텍스트로만 답했을 경우의 폴백 파싱
-  if (!args && data.message?.content) {
-    try {
-      const match = data.message.content.match(/\{[\s\S]*\}/);
-      if (match) args = JSON.parse(match[0]);
-    } catch {
-      args = null;
-    }
+    try { args = JSON.parse(args); } catch { args = null; }
   }
 
   if (!args || typeof args.related !== "boolean") {
-    console.warn("[조준경] 판정 응답 형식 이상", JSON.stringify(data));
     throw new Error("AI 응답 형식 이상");
   }
 
   return {
     related: args.related,
     reason: typeof args.reason === "string" ? args.reason : "",
+    method: "OLLAMA_LLM"
   };
 }
 
 async function handleJudgeVideo(message) {
-  const { purpose, videoId, title, description } = message;
+  const { purpose, videoId, title, description, keywords, channel, aiSummary, transcriptText } = message;
   const key = cacheKeyFor(purpose, videoId);
 
   try {
     const cache = await getCache();
     if (cache[key]) return cache[key];
 
-    const { url, model } = await getOllamaConfig();
-    if (!model) return failOpen("Ollama 모델이 설정되지 않음");
+    // 1단계: 5차원 로컬 AI 초고속 분석 (< 1ms)
+    const localVerdict = evaluateVideoIntent(purpose, title, description, keywords, channel, aiSummary);
 
-    let verdict;
-    try {
-      verdict = await callOllama(url, model, purpose, title, description);
-    } catch (err) {
-      const reason = (err && err.message) || "판정 실패";
-      console.warn("[조준경] fail-open:", reason, "| title:", title);
-      return failOpen(reason);
+    // 1차에서 높은 점수로 확실히 통과(Pass)한 영상만 바로 반환
+    if (localVerdict.confidence === "HIGH" && localVerdict.related === true) {
+      console.log(`[조준경 1차 통과] (${localVerdict.score}) -> related: true`);
+      const verdict = {
+        related: true,
+        reason: localVerdict.reason,
+        method: localVerdict.method,
+        score: localVerdict.score,
+      };
+      const updatedCache = await getCache();
+      updatedCache[key] = verdict;
+      await setCache(updatedCache);
+      return verdict;
+    }
+
+    // 2차 정밀 분석 수행 (Gemini 2.0 Flash 우선, Ollama 보조)
+    const { geminiKey, ollamaUrl, ollamaModel } = await getAiConfig();
+
+    let verdict = null;
+    if (geminiKey) {
+      try {
+        console.log("[조준경 2차 Deep 분석] Gemini 2.0 Flash API로 자막/대사 정밀 분석 중...");
+        verdict = await callGeminiApi(geminiKey, purpose, title, description, keywords, channel, aiSummary, transcriptText);
+      } catch (err) {
+        console.warn("[조준경] Gemini 2.0 Flash API 호출 실패, 로컬 결과로 백업:", err.message);
+      }
+    }
+
+    if (!verdict && ollamaModel) {
+      try {
+        console.log("[조준경 2차 Deep 분석] Ollama로 자막/대사 정밀 분석 중...");
+        verdict = await callOllama(ollamaUrl, ollamaModel, purpose, title, description, keywords, channel, aiSummary, transcriptText);
+      } catch (err) {
+        console.warn("[조준경] Ollama 호출 실패, 로컬 결과로 백업:", err.message);
+      }
+    }
+
+    if (!verdict) {
+      verdict = localVerdict;
     }
 
     const updatedCache = await getCache();
@@ -186,7 +234,7 @@ async function handleJudgeVideo(message) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === "JUDGE_VIDEO") {
     handleJudgeVideo(message).then(sendResponse);
-    return true; // keep the message channel open for the async response
+    return true;
   }
   return false;
 });

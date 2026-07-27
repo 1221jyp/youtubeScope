@@ -1,25 +1,35 @@
-const OLLAMA_URL_KEY = "jjg_ollama_url";
-const OLLAMA_MODEL_KEY = "jjg_ollama_model";
-const DEFAULT_URL = "http://localhost:11434";
-
 document.addEventListener("DOMContentLoaded", async () => {
-  const urlInput = document.getElementById("jjg-ollama-url");
-  const modelInput = document.getElementById("jjg-ollama-model");
-
   const data = await new Promise((resolve) =>
-    chrome.storage.local.get([OLLAMA_URL_KEY, OLLAMA_MODEL_KEY], resolve)
+    chrome.storage.local.get(
+      ["jjg_gemini_api_key", "jjg_ollama_url", "jjg_ollama_model"],
+      resolve
+    )
   );
-  urlInput.value = data[OLLAMA_URL_KEY] || DEFAULT_URL;
-  modelInput.value = data[OLLAMA_MODEL_KEY] || "";
+
+  document.getElementById("jjg-gemini-key").value = data.jjg_gemini_api_key || "";
+  document.getElementById("jjg-ollama-url").value = data.jjg_ollama_url || "http://localhost:11434";
+  document.getElementById("jjg-ollama-model").value = data.jjg_ollama_model || "";
 
   document.getElementById("jjg-save-btn").addEventListener("click", async () => {
-    const url = urlInput.value.trim() || DEFAULT_URL;
-    const model = modelInput.value.trim();
+    const geminiKey = document.getElementById("jjg-gemini-key").value.trim();
+    const ollamaUrl = document.getElementById("jjg-ollama-url").value.trim();
+    const ollamaModel = document.getElementById("jjg-ollama-model").value.trim();
+
     await new Promise((resolve) =>
-      chrome.storage.local.set({ [OLLAMA_URL_KEY]: url, [OLLAMA_MODEL_KEY]: model }, resolve)
+      chrome.storage.local.set(
+        {
+          jjg_gemini_api_key: geminiKey,
+          jjg_ollama_url: ollamaUrl,
+          jjg_ollama_model: ollamaModel,
+        },
+        resolve
+      )
     );
+
     const msg = document.getElementById("jjg-saved-msg");
-    msg.style.display = "inline";
-    setTimeout(() => (msg.style.display = "none"), 1500);
+    msg.style.display = "block";
+    setTimeout(() => {
+      msg.style.display = "none";
+    }, 2000);
   });
 });
