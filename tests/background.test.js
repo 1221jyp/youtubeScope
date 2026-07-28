@@ -2,6 +2,19 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
+// background/main.js의 importScripts 목록과 같은 순서여야 한다.
+const BACKGROUND_FILES = [
+  "shared/schema.js",
+  "shared/text.js",
+  "shared/storage.js",
+  "background/gemini.js",
+  "background/verdict.js",
+  "background/judge.js",
+  "background/reason.js",
+  "background/report.js",
+  "background/main.js",
+];
+
 function createHarness(initialStorage = {}) {
   const storage = { ...initialStorage };
   let listener;
@@ -52,7 +65,9 @@ function createHarness(initialStorage = {}) {
         },
       },
     },
+    // shared/storage.js는 runtime.id로 확장 컨텍스트 유효성을 확인한다.
     runtime: {
+      id: "test-extension",
       onMessage: {
         addListener(fn) {
           listener = fn;
@@ -69,8 +84,10 @@ function createHarness(initialStorage = {}) {
     clearTimeout,
     fetch: (...args) => fetchImpl(...args),
   });
-  vm.runInContext(fs.readFileSync("schema.js", "utf8"), context);
-  vm.runInContext(fs.readFileSync("background.js", "utf8"), context);
+  // manifest의 importScripts 순서와 동일하게 로드한다.
+  for (const file of BACKGROUND_FILES) {
+    vm.runInContext(fs.readFileSync(file, "utf8"), context);
+  }
 
   return {
     storage,
@@ -107,6 +124,16 @@ function geminiVerdictResponse(args) {
     }),
     text: async () => "",
   };
+}
+
+// 응답이 영영 오지 않는 회귀(sendResponse 미호출)를 무한 대기 대신 실패로 드러낸다.
+function withTimeout(promise, label, ms = 3000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}: 응답이 오지 않음`)), ms).unref?.()
+    ),
+  ]);
 }
 
 function baseStorage(log) {
@@ -333,13 +360,75 @@ async function run() {
     assert.match(verdict.reason, /Gemini API 키가 설정되지 않음/);
   }
 
+  // 이유 재판정이 승인되면 이탈이 아니라 approved_reason으로 집계돼야 한다.
   {
-    const popupSource = fs.readFileSync("popup.js", "utf8");
+    const harness = createHarness(
+      baseStorage([
+        { title: "해시테이블 강의", action: "watched", related: true },
+        {
+          title: "코딩테스트 합격 후기",
+          action: "approved_reason",
+          related: false,
+          userReason: "해시테이블 출제 사례를 확인하려고",
+          reasonVerdict: { accepted: true, explanation: "목적과 연결됨" },
+        },
+      ])
+    );
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.ok, true);
+    assert.equal(response.report.firstDeviation.title, "");
+    assert.deepEqual(Array.from(response.report.diversionPath), []);
+    assert.match(response.report.summary, /승인받은 영상 1개/);
+    assert.match(response.report.summary, /이탈 없음/);
+  }
+
+  // Gemini 장애로 callGemini가 던져도 JUDGE_REASON은 반드시 응답해야 한다.
+  // 응답하지 않으면 content script가 65초 뒤 fail-open으로 영상을 자동 승인해버린다.
+  {
+    const harness = createHarness(baseStorage([]));
+    harness.setFetch(async () => {
+      throw new TypeError("connection refused");
+    });
+    const verdict = await withTimeout(
+      harness.send({
+        type: "JUDGE_REASON",
+        purpose: "해시테이블 공부",
+        title: "개발자 브이로그",
+        description: "",
+        userReason: "해시테이블 사례를 보려고",
+      }),
+      "JUDGE_REASON"
+    );
+    assert.equal(verdict.failOpen, true);
+    assert.match(verdict.reason, /Gemini API/);
+  }
+
+  {
+    const harness = createHarness(baseStorage([]));
+    harness.setFetch(async () =>
+      geminiVerdictResponse({ related: true, reason: "목적과 직접 연결됨" })
+    );
+    const verdict = await withTimeout(
+      harness.send({
+        type: "JUDGE_REASON",
+        purpose: "해시테이블 공부",
+        title: "해시 충돌 처리 사례 분석",
+        description: "",
+        userReason: "충돌 처리 사례를 확인하려고",
+      }),
+      "JUDGE_REASON"
+    );
+    assert.equal(verdict.related, true);
+    assert.equal(verdict.failOpen, undefined);
+  }
+
+  {
+    const popupSource = fs.readFileSync("popup/popup.js", "utf8");
     assert.equal(popupSource.includes("innerHTML"), false);
     assert.match(popupSource, /item\.textContent/);
   }
 
-  console.log("background/popup 핵심 시나리오 13개 통과");
+  console.log("background/popup 핵심 시나리오 16개 통과");
 }
 
 run().catch((error) => {

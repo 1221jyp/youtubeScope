@@ -1,0 +1,345 @@
+#jjg-purpose-modal-backdrop,
+.jjg-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#jjg-purpose-modal,
+.jjg-modal {
+  background: #fff;
+  color: #111;
+  width: 380px;
+  max-width: 90vw;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  font-family: "Roboto", "Noto Sans KR", sans-serif;
+  text-align: left;
+}
+
+#jjg-purpose-modal h2,
+.jjg-modal h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+#jjg-purpose-modal p,
+.jjg-modal p {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #555;
+}
+
+/* 모달 안의 보조 동작 ("나중에 할게요", "아직 더 볼래요") */
+.jjg-text-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.jjg-text-btn:hover {
+  color: #111;
+}
+
+/* ---------- 목표 달성 확인 ---------- */
+
+.jjg-modal-purpose {
+  background: #f4f4f4;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #333 !important;
+  word-break: break-all;
+}
+
+.jjg-choice-row {
+  display: flex;
+  gap: 8px;
+}
+
+.jjg-choice {
+  flex: 1;
+  padding: 12px 6px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jjg-choice:hover {
+  border-color: #999;
+}
+
+.jjg-choice-achieved {
+  color: #2e7d32;
+}
+
+.jjg-choice-partial {
+  color: #b26a00;
+}
+
+.jjg-choice-failed {
+  color: #8a1c17;
+}
+
+/* ---------- 종료 후 이탈 리포트 ---------- */
+
+.jjg-report-modal {
+  width: 480px;
+}
+
+#jjg-report-modal-body {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.jjg-report-message {
+  padding: 24px 0;
+  text-align: center;
+  color: #555 !important;
+}
+
+.jjg-modal-close {
+  width: 100%;
+  padding: 10px 12px;
+  background: #212121;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* shared/report-view.js가 만드는 섹션 (popup.html의 스타일과 같은 모양) */
+.jjg-report-section {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.jjg-report-section.prominent {
+  background: #fff5f5;
+  border-left: 3px solid #cc0000;
+}
+
+.jjg-report-section h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #111;
+}
+
+.jjg-report-section p,
+.jjg-report-section ul {
+  margin: 0 !important;
+  color: #444 !important;
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.jjg-report-section ul {
+  padding-left: 18px;
+}
+
+#jjg-purpose-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+#jjg-purpose-submit {
+  width: 100%;
+  padding: 10px 12px;
+  background: #cc0000;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#jjg-purpose-submit:hover {
+  background: #a80000;
+}
+
+/* 화면 우하단 세션 버튼 바. 상태에 따라 버튼 구성이 바뀐다. */
+#jjg-session-bar {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483000;
+  display: flex;
+  gap: 8px;
+  font-family: "Roboto", "Noto Sans KR", sans-serif;
+}
+
+#jjg-session-bar button {
+  background: #212121;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  opacity: 0.85;
+}
+
+#jjg-session-bar button:hover:not(:disabled) {
+  opacity: 1;
+}
+
+#jjg-session-bar button.jjg-end {
+  background: #cc0000;
+}
+
+#jjg-session-bar button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+#jjg-video-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: "Roboto", "Noto Sans KR", sans-serif;
+  text-align: center;
+}
+
+#jjg-video-overlay .jjg-box {
+  max-width: 80%;
+  padding: 24px;
+}
+
+#jjg-video-overlay .jjg-status {
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+
+#jjg-video-overlay .jjg-warning-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+#jjg-video-overlay .jjg-warning-reason {
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 20px;
+}
+
+#jjg-video-overlay #jjg-user-reason {
+  width: 100%;
+  box-sizing: border-box;
+  height: 70px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid #777;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  resize: none;
+}
+
+#jjg-video-overlay #jjg-user-reason::placeholder {
+  color: #aaa;
+}
+
+#jjg-video-overlay .jjg-reason-result {
+  font-size: 13px;
+  color: #ffd6d6;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+#jjg-video-overlay .jjg-btn-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+#jjg-video-overlay button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+#jjg-video-overlay button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#jjg-video-overlay .jjg-btn-leave {
+  background: #3ea6ff;
+  color: #000;
+  font-weight: 600;
+}
+
+#jjg-video-overlay .jjg-btn-watch-anyway {
+  background: transparent;
+  color: #fff;
+  border: 1px solid #777;
+}
+
+#jjg-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff3cd;
+  color: #664d03;
+  border: 1px solid #ffe69c;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "Roboto", "Noto Sans KR", sans-serif;
+  z-index: 2147483647;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.jjg-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  margin: 0 auto 12px;
+  animation: jjg-spin 0.8s linear infinite;
+}
+
+@keyframes jjg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

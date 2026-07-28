@@ -1,18 +1,10 @@
+// [파트: 세션 리포트 · 통계] popup 화면. 통계·체인 렌더와 AI 리포트 요청을 담당한다.
 const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
+const storage = globalThis.JJG_STORAGE;
+// 리포트 본문 렌더링은 종료 리포트 모달과 공유한다 (shared/report-view.js).
+const { appendTextElement } = globalThis.JJG_REPORT_VIEW;
 
 let reportLoading = false;
-
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
-}
-
-function appendTextElement(parent, tag, className, text) {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  el.textContent = text;
-  parent.appendChild(el);
-  return el;
-}
 
 function renderChain(log) {
   const chainEl = document.getElementById("jjg-chain");
@@ -29,6 +21,9 @@ function renderChain(log) {
     if (entry.action === "left_anyway") {
       item.classList.add("left");
       icon = "⚠️ ";
+    } else if (entry.action === "approved_reason") {
+      item.classList.add("approved");
+      icon = "✅ ";
     } else if (entry.action === "went_back") {
       item.classList.add("prevented");
       icon = "↩️ ";
@@ -43,54 +38,16 @@ function renderChain(log) {
     if ((entry.action === "skipped" || entry.action === "blocked") && entry.reason) {
       appendTextElement(item, "small", "", ` (${entry.reason})`);
     }
+    if (entry.action === "approved_reason" && entry.userReason) {
+      appendTextElement(item, "small", "", ` (내 이유: ${entry.userReason})`);
+    }
     chainEl.appendChild(item);
     if (idx < log.length - 1) appendTextElement(chainEl, "div", "jjg-chain-arrow", "↓");
   });
 }
 
-function addReportSection(parent, heading, content, prominent = false) {
-  const section = document.createElement("section");
-  section.className = prominent ? "jjg-report-section prominent" : "jjg-report-section";
-  appendTextElement(section, "h3", "", heading);
-  appendTextElement(section, "p", "", content || "해당 내용이 없습니다.");
-  parent.appendChild(section);
-}
-
-function addReportList(parent, heading, items) {
-  const section = document.createElement("section");
-  section.className = "jjg-report-section";
-  appendTextElement(section, "h3", "", heading);
-  if (!Array.isArray(items) || items.length === 0) {
-    appendTextElement(section, "p", "", "발견된 내용이 없습니다.");
-  } else {
-    const list = document.createElement("ul");
-    items.forEach((item) => appendTextElement(list, "li", "", String(item)));
-    section.appendChild(list);
-  }
-  parent.appendChild(section);
-}
-
 function renderReport(report) {
-  const output = document.getElementById("jjg-report-output");
-  output.replaceChildren();
-  addReportSection(output, "세션 요약", report?.summary, true);
-
-  const first = report?.firstDeviation;
-  const firstText =
-    first?.title || first?.reason
-      ? [first.title, first.reason].filter(Boolean).join(" — ")
-      : "이번 세션에서는 확인된 이탈이 없습니다.";
-  addReportSection(output, "첫 이탈 지점", firstText, true);
-
-  const path = Array.isArray(report?.diversionPath) ? report.diversionPath.filter(Boolean) : [];
-  addReportSection(
-    output,
-    "주요 이탈 경로",
-    path.length ? path.join(" → ") : "표시할 이탈 경로가 없습니다."
-  );
-  addReportList(output, "발견된 패턴", report?.patterns);
-  addReportList(output, "다음 세션 추천", report?.recommendations);
-  addReportSection(output, "AI 마무리 메시지", report?.encouragement);
+  globalThis.JJG_REPORT_VIEW.renderReport(document.getElementById("jjg-report-output"), report);
 
   document.getElementById("jjg-report-error").hidden = true;
   document.getElementById("jjg-report-content").hidden = false;
@@ -136,7 +93,7 @@ function requestReport(force = false) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const data = await storageGet(Object.values(STORAGE_KEYS));
+  const data = await storage.get(Object.values(STORAGE_KEYS));
   const purpose = data[STORAGE_KEYS.PURPOSE] || "(설정 안 됨)";
   const sessionId = data[STORAGE_KEYS.SESSION_ID];
   const log = Array.isArray(data[STORAGE_KEYS.SESSION_LOG]) ? data[STORAGE_KEYS.SESSION_LOG] : [];
@@ -145,6 +102,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("jjg-total").textContent = String(log.length);
   document.getElementById("jjg-leaves").textContent = String(
     log.filter((entry) => entry.action === "left_anyway").length
+  );
+  document.getElementById("jjg-approved").textContent = String(
+    log.filter((entry) => entry.action === "approved_reason").length
   );
   document.getElementById("jjg-skipped").textContent = String(
     log.filter((entry) => entry.action === "skipped").length

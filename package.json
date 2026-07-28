@@ -1,0 +1,9 @@
+{
+  "name": "youtubescope",
+  "version": "0.1.0",
+  "description": "조준경 - 유튜브 이탈 방지 확장 프로그램",
+  "private": true,
+  "scripts": {
+    "test": "node tests/manifest.test.js && node tests/schema.test.js && node tests/content.test.js && node tests/background.test.js"
+  }
+}

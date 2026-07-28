@@ -42,8 +42,24 @@ const session = JJG_SCHEMA.createSession();
 // { sessionId, status: "active", startedAt, endedAt: null }
 ```
 
-`normalizeSession()`은 잘못된 상태를 `null`로 반환하고 오류를 제공한다. 이 스키마는 종료 상태를
-표현할 뿐이며 현재 세션 종료 기능을 구현하지 않는다.
+`normalizeSession()`은 잘못된 상태를 `null`로 반환하고 오류를 제공한다.
+
+### 상태 전이 (구현됨)
+
+```
+(status 없음) --목표 설정--> active --몰입 종료--> ending --목표 확인 완료--> ended
+                               ^                     |
+                               +----- 확인 취소 ------+
+```
+
+- `active`가 아니면 새 영상 판정을 시작하지 않는다.
+- `ending`에서 종료 버튼은 비활성화되어 중복 클릭이 막힌다.
+- `COMPLETION_RESULT`를 저장한 뒤에만 `ended`로 넘어가고, 그때 `endedAt`을 함께 쓴다.
+- 새 세션을 시작하면 `active`로 돌아가며 로그·리포트·달성 결과가 초기화된다.
+
+저장소는 세션을 키 4개(`SESSION_ID`/`SESSION_STATUS`/`SESSION_STARTED_AT`/`SESSION_ENDED_AT`)로
+나눠 담는다. `normalizeSession()`은 객체 하나를 받으므로 읽을 때 다시 조립해서 넘겨야 한다.
+상태 전이는 `content/session.js`에만 두고 다른 모듈은 읽기만 한다.
 
 ## 목적 구체화
 
@@ -105,6 +121,12 @@ const session = JJG_SCHEMA.createSession();
 
 `blocked`는 최신 기존 코드가 이미 사용하므로 공통 action에 포함한다.
 
+리포트 분석 대상은 `watched`, `approved_reason`, `left_anyway`, `went_back`, `blocked`이며 `skipped`는
+AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계하는 action은 `left_anyway` 하나뿐이다.
+
+현재 UI에는 "그래도 시청" 버튼이 없고 이유를 제출해 AI 승인을 받아야 하므로, `left_anyway`는 과거
+로그에만 남아 있는 레거시 action이다.
+
 ```js
 {
   sessionId: 1720000000000,
@@ -126,6 +148,30 @@ const session = JJG_SCHEMA.createSession();
 ```
 
 이유를 아직 받지 않았다면 `userReason: ""`, `reasonVerdict: null`을 사용한다.
+
+### content.js가 실제로 기록하는 형식
+
+현재 `content.js`는 아직 `initialVerdict` 대신 레거시 필드(`related`, `reason`)를 쓰면서
+이유 재판정 결과만 공통 스키마 필드로 함께 남기는 과도기 형식으로 기록한다.
+
+```js
+{
+  videoId, title, ts,
+  related: false,
+  reason: "목적과 무관한 브이로그 콘텐츠",  // 초기 판정 근거
+  userReason: "해시테이블 출제 사례를 확인하려고",
+  reasonVerdict: { accepted: true, explanation: "목적과 연결됨" },
+  action: "approved_reason"
+}
+```
+
+차단 시점에 `action: "blocked"`, `userReason: ""`, `reasonVerdict: null`로 먼저 기록하고 이후 선택에
+따라 같은 항목을 갱신한다.
+
+- AI가 이유를 승인 → `action: "approved_reason"`, `reasonVerdict.accepted: true`
+- AI가 이유를 거절 → `action`은 `blocked` 유지, `reasonVerdict.accepted: false`로 근거만 기록
+- AI 장애로 판정 불가 → `action: "skipped"` (승인과 구분해서 이탈 분석에서 제외)
+- 돌아가기 → `action: "went_back"`
 
 ### 기존 로그 호환
 
