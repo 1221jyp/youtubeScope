@@ -3,8 +3,9 @@
 (function (root) {
   "use strict";
 
+  const { STORAGE_KEYS } = root.JJG_SCHEMA;
   const { handleWatchPage } = root.JJG_JUDGE_FLOW;
-  const { getPurpose, showPurposeModal, ensureChangePurposeButton } = root.JJG_SESSION;
+  const { getSession, renderSessionBar, showPurposeModal } = root.JJG_SESSION;
 
   const NAVIGATE_DEBOUNCE_MS = 150;
   let navigateDebounceTimer = null;
@@ -19,13 +20,22 @@
   window.addEventListener("jjg-locationchange", onNavigate); // history-hook.js가 보내는 이벤트
   window.addEventListener("popstate", onNavigate);
 
+  // 유튜브 탭이 여러 개일 때 한 곳에서 세션을 끝내면 나머지 탭도 기본 상태로 바뀌어야 한다.
+  if (chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes[STORAGE_KEYS.SESSION_STATUS]) return;
+      renderSessionBar();
+    });
+  }
+
   (async () => {
-    const purpose = await getPurpose();
-    if (!purpose) {
+    const session = await getSession();
+    await renderSessionBar();
+    // 세션을 시작한 적이 없으면 목적 선언 모달을 띄운다. 닫으면 기본 상태로 남는다.
+    if (!session.purpose) {
       showPurposeModal();
       return;
     }
-    ensureChangePurposeButton();
     handleWatchPage(true);
   })();
 })(typeof globalThis !== "undefined" ? globalThis : this);

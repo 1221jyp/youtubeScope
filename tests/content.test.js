@@ -19,6 +19,7 @@ function createStubElement() {
     disabled: false,
     style: {},
     appendChild() {},
+    replaceChildren() {},
     remove() {},
     focus() {},
     addEventListener() {},
@@ -90,6 +91,61 @@ function loadContentScripts(storage = {}) {
   return context;
 }
 
+// 세션 종료 명세의 제약들이 실제로 지켜지는지 검증한다.
+async function testSessionLifecycle() {
+  const storage = {};
+  const { JJG_SESSION, JJG_SCHEMA } = loadContentScripts(storage);
+  const { SESSION_STATUS, COMPLETION_STATUS } = JJG_SCHEMA;
+
+  // 5. 목표 설정 → active
+  await JJG_SESSION.startNewSession("해시테이블 공부");
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ACTIVE);
+  assert.equal(storage.jjg_session_ended_at, null);
+  assert.equal(await JJG_SESSION.isFocusing(), true);
+
+  // 로그가 있어도 종료 버튼이 지우지 않는지 확인하기 위해 미리 채워둔다.
+  storage.jjg_session_log = [{ videoId: "a", action: "watched" }];
+
+  // 6. 몰입 종료 → ending. 로그는 그대로 남고, 판정은 멈춘다.
+  assert.equal(await JJG_SESSION.beginEnding(), true);
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ENDING);
+  assert.equal(storage.jjg_session_log.length, 1, "종료 버튼이 로그를 지우면 안 된다");
+  assert.equal(await JJG_SESSION.isFocusing(), false);
+
+  // 7. 종료 버튼 중복 클릭은 무시된다 (이미 active가 아님).
+  assert.equal(await JJG_SESSION.beginEnding(), false);
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ENDING);
+
+  // 8. 잘못된 달성 결과로는 ended가 되지 않는다.
+  assert.equal(await JJG_SESSION.completeSession("아무거나"), false);
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ENDING);
+  assert.equal(storage.jjg_completion_result, null, "결과 저장 전에 ended로 넘어가면 안 된다");
+
+  // 확인을 취소하면 몰입 상태로 되돌아간다.
+  assert.equal(await JJG_SESSION.cancelEnding(), true);
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ACTIVE);
+
+  // 9. 목표 확인 완료 → 결과 저장 후 ended + endedAt
+  await JJG_SESSION.beginEnding();
+  assert.equal(await JJG_SESSION.completeSession(COMPLETION_STATUS.PARTIAL), true);
+  assert.equal(storage.jjg_completion_result.status, COMPLETION_STATUS.PARTIAL);
+  assert.equal(typeof storage.jjg_completion_result.checkedAt, "number");
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ENDED);
+  assert.equal(typeof storage.jjg_session_ended_at, "number");
+  assert.equal(storage.jjg_session_log.length, 1, "종료 후에도 로그는 남아 있어야 한다");
+
+  // ended 상태에서는 판정하지 않고, 중복 완료도 무시된다.
+  assert.equal(await JJG_SESSION.isFocusing(), false);
+  assert.equal(await JJG_SESSION.completeSession(COMPLETION_STATUS.ACHIEVED), false);
+
+  // 새 세션을 시작하면 active로 돌아가고 이전 기록이 정리된다.
+  await JJG_SESSION.startNewSession("SQL 공부");
+  assert.equal(storage.jjg_session_status, SESSION_STATUS.ACTIVE);
+  assert.equal(storage.jjg_session_ended_at, null);
+  assert.equal(storage.jjg_completion_result, null);
+  assert.equal(storage.jjg_session_log.length, 0);
+}
+
 function run() {
   // 1. 목적이 없는 상태에서 전체 로드 + 부팅 (목적 선언 모달 경로)
   const fresh = loadContentScripts({});
@@ -135,7 +191,8 @@ function run() {
     await updateLogEntry(99, { action: "watched" }); // 없는 인덱스는 조용히 무시
     assert.equal(storage.jjg_session_log.length, 2);
 
-    console.log("content script 로드/동작 시나리오 4개 통과");
+    await testSessionLifecycle();
+    console.log("content script 로드/동작 시나리오 9개 통과");
   })();
 }
 

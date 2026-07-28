@@ -1,4 +1,5 @@
-#jjg-purpose-modal-backdrop {
+#jjg-purpose-modal-backdrop,
+.jjg-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -8,7 +9,8 @@
   justify-content: center;
 }
 
-#jjg-purpose-modal {
+#jjg-purpose-modal,
+.jjg-modal {
   background: #fff;
   color: #111;
   width: 380px;
@@ -17,17 +19,143 @@
   padding: 24px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   font-family: "Roboto", "Noto Sans KR", sans-serif;
+  text-align: left;
 }
 
-#jjg-purpose-modal h2 {
+#jjg-purpose-modal h2,
+.jjg-modal h2 {
   margin: 0 0 8px;
   font-size: 18px;
 }
 
-#jjg-purpose-modal p {
+#jjg-purpose-modal p,
+.jjg-modal p {
   margin: 0 0 16px;
   font-size: 13px;
   color: #555;
+}
+
+/* 모달 안의 보조 동작 ("나중에 할게요", "아직 더 볼래요") */
+.jjg-text-btn {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.jjg-text-btn:hover {
+  color: #111;
+}
+
+/* ---------- 목표 달성 확인 ---------- */
+
+.jjg-modal-purpose {
+  background: #f4f4f4;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #333 !important;
+  word-break: break-all;
+}
+
+.jjg-choice-row {
+  display: flex;
+  gap: 8px;
+}
+
+.jjg-choice {
+  flex: 1;
+  padding: 12px 6px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jjg-choice:hover {
+  border-color: #999;
+}
+
+.jjg-choice-achieved {
+  color: #2e7d32;
+}
+
+.jjg-choice-partial {
+  color: #b26a00;
+}
+
+.jjg-choice-failed {
+  color: #8a1c17;
+}
+
+/* ---------- 종료 후 이탈 리포트 ---------- */
+
+.jjg-report-modal {
+  width: 480px;
+}
+
+#jjg-report-modal-body {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.jjg-report-message {
+  padding: 24px 0;
+  text-align: center;
+  color: #555 !important;
+}
+
+.jjg-modal-close {
+  width: 100%;
+  padding: 10px 12px;
+  background: #212121;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* shared/report-view.js가 만드는 섹션 (popup.html의 스타일과 같은 모양) */
+.jjg-report-section {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.jjg-report-section.prominent {
+  background: #fff5f5;
+  border-left: 3px solid #cc0000;
+}
+
+.jjg-report-section h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #111;
+}
+
+.jjg-report-section p,
+.jjg-report-section ul {
+  margin: 0 !important;
+  color: #444 !important;
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.jjg-report-section ul {
+  padding-left: 18px;
 }
 
 #jjg-purpose-input {
@@ -56,11 +184,18 @@
   background: #a80000;
 }
 
-#jjg-change-purpose-btn {
+/* 화면 우하단 세션 버튼 바. 상태에 따라 버튼 구성이 바뀐다. */
+#jjg-session-bar {
   position: fixed;
   bottom: 20px;
   right: 20px;
   z-index: 2147483000;
+  display: flex;
+  gap: 8px;
+  font-family: "Roboto", "Noto Sans KR", sans-serif;
+}
+
+#jjg-session-bar button {
   background: #212121;
   color: #fff;
   border: none;
@@ -72,8 +207,17 @@
   opacity: 0.85;
 }
 
-#jjg-change-purpose-btn:hover {
+#jjg-session-bar button:hover:not(:disabled) {
   opacity: 1;
+}
+
+#jjg-session-bar button.jjg-end {
+  background: #cc0000;
+}
+
+#jjg-session-bar button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 #jjg-video-overlay {

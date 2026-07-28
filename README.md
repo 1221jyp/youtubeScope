@@ -23,7 +23,11 @@ Gemini API 키는 확장 프로그램 옵션 화면에서 입력한다.
 | 영상 판정 | [content/judge-flow.js](content/judge-flow.js) | [background/judge.js](background/judge.js) |
 | 이유 재판정 | [content/reason-flow.js](content/reason-flow.js) | [background/reason.js](background/reason.js) |
 | 세션 로그 | [content/log.js](content/log.js) | — |
-| 세션 리포트 · 통계 | [popup/popup.js](popup/popup.js) | [background/report.js](background/report.js) |
+| 목표 달성 확인 | [content/completion.js](content/completion.js) | — |
+| 세션 리포트 · 통계 | [popup/popup.js](popup/popup.js), [content/report-modal.js](content/report-modal.js) | [background/report.js](background/report.js) |
+
+목표 달성 확인은 임시 최소 구현 상태다. 교체할 때 지켜야 할 규약은
+[content/completion.js](content/completion.js) 맨 위 주석에 있다.
 
 ### 공용 파일 (고치기 전에 알리기)
 
@@ -33,6 +37,7 @@ Gemini API 키는 확장 프로그램 옵션 화면에서 입력한다.
 | [shared/storage.js](shared/storage.js) | `chrome.storage.local` 래퍼 |
 | [shared/selectors.js](shared/selectors.js) | 유튜브 DOM/메타 선택자 |
 | [shared/text.js](shared/text.js) | 문자열 정리 헬퍼 |
+| [shared/report-view.js](shared/report-view.js) | 리포트 본문 DOM 렌더링 (popup·종료 모달 공용) |
 | [background/gemini.js](background/gemini.js) | Gemini API 호출 방식 (fetch·에러·함수 호출 파싱) |
 | [background/verdict.js](background/verdict.js) | **판정 프롬프트와 가드레일.** 영상 판정과 이유 재판정이 같은 기준을 써야 해서 공유한다 |
 | [content/ui.js](content/ui.js) | 오버레이 틀·토스트·비디오 제어 |
@@ -67,12 +72,32 @@ Gemini API 키는 확장 프로그램 옵션 화면에서 입력한다.
 
 `tests/manifest.test.js`가 경로 오타·네임스페이스 중복·로드 순서 위반을 잡아준다.
 
+## 세션 상태
+
+UI는 두 가지로만 보이고, 스키마의 `SESSION_STATUS` 3상태에 매핑된다.
+
+| UI | `SESSION_STATUS` | 화면 우하단 | 영상 판정 |
+|---|---|---|---|
+| 기본 | 키 없음(설치 직후) 또는 `ended` | `🎯 목표 설정` | 안 함 |
+| 몰입 | `active` | `🎯 목적 변경` `⏹ 몰입 종료` | 함 |
+| 전환 중 | `ending` | `종료 중...` (비활성) | 안 함 |
+
+```
+(기본) --목표 설정--> active --몰입 종료--> ending --목표 확인--> ended --> (기본)
+                        ^                     |
+                        +----- 확인 취소 ------+
+```
+
+`ending`에서 버튼을 비활성화하는 것으로 종료 버튼 중복 클릭이 막힌다.
+상태 전이는 전부 [content/session.js](content/session.js)에만 있고, 다른 모듈은 `getSession()`으로 읽기만 한다.
+탭이 여러 개면 [content/main.js](content/main.js)의 `storage.onChanged`가 나머지 탭 버튼을 갱신한다.
+
 ## 데이터 흐름
 
 ```
 content/main.js
   └ URL 변경 감지 → judge-flow.handleWatchPage()
-      ├ session.getPurpose()          목적 없으면 목적 선언 모달
+      ├ session.getSession()          몰입 상태(active)가 아니면 아무것도 안 함
       ├ navigation.waitForTitle()     제목이 갱신될 때까지 대기
       ├ messaging → JUDGE_VIDEO ──────→ background/judge.js → verdict.js → Gemini
       ├ 통과: ui.playVideo() + log.appendLog({ action: "watched" })
@@ -82,6 +107,13 @@ content/main.js
                      ├ 거절   → action: "blocked" 유지 (이유·근거만 기록)
                      ├ AI장애 → action: "skipped"
                      └ 돌아가기 → action: "went_back"
+
+몰입 종료
+  └ session.beginEnding()          → ending (판정 중단, 로그는 유지)
+      └ completion.askCompletion() → 목표 달성 확인 (용진 파트)
+           └ session.completeSession(status)
+                → COMPLETION_RESULT 저장 → ended + endedAt
+                → report-modal.show()    → 이탈 리포트 모달
 
 popup/popup.js
   └ GENERATE_SESSION_REPORT ─→ background/report.js
@@ -102,5 +134,8 @@ popup/popup.js
 - 유튜브 탭이 여러 개면 세션 로그의 read-modify-write가 서로를 덮어쓴다
 - [background/verdict.js](background/verdict.js)의 가드레일이 이유 재판정에도 적용되어,
   제목 키워드만으로 이유가 무시될 수 있다 (의도된 동작인지 확인 필요)
+- popup 통계 타일이 낡았다: `left_anyway`(이탈 횟수)는 기록하는 코드가 없어 항상 0이고,
+  `went_back`(돌아감) 타일은 아예 없다. "총 시청 영상"도 안 본 영상까지 센다
+- 목표 달성 확인([content/completion.js](content/completion.js))은 임시 최소 구현
 - SCHEMA.md에 정의만 되어 있고 아직 구현하지 않은 기능: 목적 AI 구체화(`GOAL_PROFILE`),
-  3단계 판정(`ask_reason`), 세션 종료, 목표 달성 확인, 다음 세션 규칙
+  3단계 판정(`ask_reason`), 다음 세션 규칙

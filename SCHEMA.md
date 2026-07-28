@@ -42,8 +42,24 @@ const session = JJG_SCHEMA.createSession();
 // { sessionId, status: "active", startedAt, endedAt: null }
 ```
 
-`normalizeSession()`은 잘못된 상태를 `null`로 반환하고 오류를 제공한다. 이 스키마는 종료 상태를
-표현할 뿐이며 현재 세션 종료 기능을 구현하지 않는다.
+`normalizeSession()`은 잘못된 상태를 `null`로 반환하고 오류를 제공한다.
+
+### 상태 전이 (구현됨)
+
+```
+(status 없음) --목표 설정--> active --몰입 종료--> ending --목표 확인 완료--> ended
+                               ^                     |
+                               +----- 확인 취소 ------+
+```
+
+- `active`가 아니면 새 영상 판정을 시작하지 않는다.
+- `ending`에서 종료 버튼은 비활성화되어 중복 클릭이 막힌다.
+- `COMPLETION_RESULT`를 저장한 뒤에만 `ended`로 넘어가고, 그때 `endedAt`을 함께 쓴다.
+- 새 세션을 시작하면 `active`로 돌아가며 로그·리포트·달성 결과가 초기화된다.
+
+저장소는 세션을 키 4개(`SESSION_ID`/`SESSION_STATUS`/`SESSION_STARTED_AT`/`SESSION_ENDED_AT`)로
+나눠 담는다. `normalizeSession()`은 객체 하나를 받으므로 읽을 때 다시 조립해서 넘겨야 한다.
+상태 전이는 `content/session.js`에만 두고 다른 모듈은 읽기만 한다.
 
 ## 목적 구체화
 

@@ -3,6 +3,7 @@
 (function (root) {
   "use strict";
 
+  const { SESSION_STATUS } = root.JJG_SCHEMA;
   const { showOverlay, removeOverlay, playVideo, showToast } = root.JJG_UI;
   const { getCurrentVideoId, waitForTitle, extractDescription } = root.JJG_NAV;
   const { sendMessageWithTimeout } = root.JJG_MESSAGING;
@@ -20,11 +21,14 @@
     if (!force && videoId === lastProcessedVideoId) return;
     lastProcessedVideoId = videoId;
 
-    const purpose = await root.JJG_SESSION.getPurpose();
-    if (!purpose) {
-      root.JJG_SESSION.showPurposeModal();
+    // 몰입 상태(active)에서만 판정한다.
+    // 기본 상태(세션 없음/ended)와 종료 진행 중(ending)에는 아무것도 하지 않는다.
+    const session = await root.JJG_SESSION.getSession();
+    if (session.status !== SESSION_STATUS.ACTIVE || !session.purpose) {
+      removeOverlay();
       return;
     }
+    const purpose = session.purpose;
 
     showOverlay();
     const title = await waitForTitle(videoId);
