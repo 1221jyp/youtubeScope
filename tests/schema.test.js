@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const schema = require("../schema.js");
+const schema = require("../shared/schema.js");
 
 const {
   SESSION_STATUS,

@@ -9,24 +9,36 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background/main.js"
   },
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["history-hook.js"],
+      "js": ["content/history-hook.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["schema.js", "selectors.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "shared/schema.js",
+        "shared/storage.js",
+        "shared/selectors.js",
+        "content/messaging.js",
+        "content/ui.js",
+        "content/log.js",
+        "content/navigation.js",
+        "content/session.js",
+        "content/reason-flow.js",
+        "content/judge-flow.js",
+        "content/main.js"
+      ],
+      "css": ["content/content.css"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup/popup.html"
   },
-  "options_page": "options.html"
+  "options_page": "options/options.html"
 }

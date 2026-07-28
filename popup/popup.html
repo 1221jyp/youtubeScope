@@ -22,15 +22,15 @@
       word-break: break-all;
     }
     .jjg-stats {
-      display: flex;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
       margin-bottom: 14px;
     }
     .jjg-stat {
-      flex: 1;
       background: #f4f4f4;
       border-radius: 8px;
-      padding: 10px;
+      padding: 10px 6px;
       text-align: center;
     }
     .jjg-stat .num {
@@ -61,6 +61,10 @@
     .jjg-chain-item.skipped {
       background: #fff9e6;
       border: 1px solid #ffe69c;
+    }
+    .jjg-chain-item.approved {
+      background: #f0f7ff;
+      border: 1px solid #b3d8ff;
     }
     .jjg-chain-item.prevented {
       background: #edf7ed;
@@ -172,6 +176,10 @@
       <div class="label">이탈 횟수</div>
     </div>
     <div class="jjg-stat">
+      <div class="num" id="jjg-approved">0</div>
+      <div class="label">이유 승인</div>
+    </div>
+    <div class="jjg-stat">
       <div class="num" id="jjg-skipped">0</div>
       <div class="label">판정 건너뜀</div>
     </div>
@@ -196,7 +204,8 @@
       <button class="jjg-report-button secondary" id="jjg-report-regenerate">리포트 다시 생성</button>
     </div>
   </div>
-  <script src="schema.js"></script>
+  <script src="../shared/schema.js"></script>
+  <script src="../shared/storage.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

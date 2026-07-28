@@ -1,10 +1,8 @@
+// [파트: 세션 리포트 · 통계] popup 화면. 통계·체인 렌더와 AI 리포트 요청을 담당한다.
 const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
+const storage = globalThis.JJG_STORAGE;
 
 let reportLoading = false;
-
-function storageGet(keys) {
-  return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
-}
 
 function appendTextElement(parent, tag, className, text) {
   const el = document.createElement(tag);
@@ -29,6 +27,9 @@ function renderChain(log) {
     if (entry.action === "left_anyway") {
       item.classList.add("left");
       icon = "⚠️ ";
+    } else if (entry.action === "approved_reason") {
+      item.classList.add("approved");
+      icon = "✅ ";
     } else if (entry.action === "went_back") {
       item.classList.add("prevented");
       icon = "↩️ ";
@@ -42,6 +43,9 @@ function renderChain(log) {
     item.textContent = `${icon}${entry.title || "(제목 없음)"}`;
     if ((entry.action === "skipped" || entry.action === "blocked") && entry.reason) {
       appendTextElement(item, "small", "", ` (${entry.reason})`);
+    }
+    if (entry.action === "approved_reason" && entry.userReason) {
+      appendTextElement(item, "small", "", ` (내 이유: ${entry.userReason})`);
     }
     chainEl.appendChild(item);
     if (idx < log.length - 1) appendTextElement(chainEl, "div", "jjg-chain-arrow", "↓");
@@ -136,7 +140,7 @@ function requestReport(force = false) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const data = await storageGet(Object.values(STORAGE_KEYS));
+  const data = await storage.get(Object.values(STORAGE_KEYS));
   const purpose = data[STORAGE_KEYS.PURPOSE] || "(설정 안 됨)";
   const sessionId = data[STORAGE_KEYS.SESSION_ID];
   const log = Array.isArray(data[STORAGE_KEYS.SESSION_LOG]) ? data[STORAGE_KEYS.SESSION_LOG] : [];
@@ -145,6 +149,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("jjg-total").textContent = String(log.length);
   document.getElementById("jjg-leaves").textContent = String(
     log.filter((entry) => entry.action === "left_anyway").length
+  );
+  document.getElementById("jjg-approved").textContent = String(
+    log.filter((entry) => entry.action === "approved_reason").length
   );
   document.getElementById("jjg-skipped").textContent = String(
     log.filter((entry) => entry.action === "skipped").length

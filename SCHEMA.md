@@ -105,6 +105,12 @@ const session = JJG_SCHEMA.createSession();
 
 `blocked`는 최신 기존 코드가 이미 사용하므로 공통 action에 포함한다.
 
+리포트 분석 대상은 `watched`, `approved_reason`, `left_anyway`, `went_back`, `blocked`이며 `skipped`는
+AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계하는 action은 `left_anyway` 하나뿐이다.
+
+현재 UI에는 "그래도 시청" 버튼이 없고 이유를 제출해 AI 승인을 받아야 하므로, `left_anyway`는 과거
+로그에만 남아 있는 레거시 action이다.
+
 ```js
 {
   sessionId: 1720000000000,
@@ -126,6 +132,30 @@ const session = JJG_SCHEMA.createSession();
 ```
 
 이유를 아직 받지 않았다면 `userReason: ""`, `reasonVerdict: null`을 사용한다.
+
+### content.js가 실제로 기록하는 형식
+
+현재 `content.js`는 아직 `initialVerdict` 대신 레거시 필드(`related`, `reason`)를 쓰면서
+이유 재판정 결과만 공통 스키마 필드로 함께 남기는 과도기 형식으로 기록한다.
+
+```js
+{
+  videoId, title, ts,
+  related: false,
+  reason: "목적과 무관한 브이로그 콘텐츠",  // 초기 판정 근거
+  userReason: "해시테이블 출제 사례를 확인하려고",
+  reasonVerdict: { accepted: true, explanation: "목적과 연결됨" },
+  action: "approved_reason"
+}
+```
+
+차단 시점에 `action: "blocked"`, `userReason: ""`, `reasonVerdict: null`로 먼저 기록하고 이후 선택에
+따라 같은 항목을 갱신한다.
+
+- AI가 이유를 승인 → `action: "approved_reason"`, `reasonVerdict.accepted: true`
+- AI가 이유를 거절 → `action`은 `blocked` 유지, `reasonVerdict.accepted: false`로 근거만 기록
+- AI 장애로 판정 불가 → `action: "skipped"` (승인과 구분해서 이탈 분석에서 제외)
+- 돌아가기 → `action: "went_back"`
 
 ### 기존 로그 호환
 

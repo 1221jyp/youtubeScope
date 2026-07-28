@@ -111,10 +111,41 @@
   margin-bottom: 20px;
 }
 
+#jjg-video-overlay #jjg-user-reason {
+  width: 100%;
+  box-sizing: border-box;
+  height: 70px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid #777;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  resize: none;
+}
+
+#jjg-video-overlay #jjg-user-reason::placeholder {
+  color: #aaa;
+}
+
+#jjg-video-overlay .jjg-reason-result {
+  font-size: 13px;
+  color: #ffd6d6;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
 #jjg-video-overlay .jjg-btn-row {
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+
+#jjg-video-overlay button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 #jjg-video-overlay button {
