@@ -55,18 +55,44 @@
 
 /* ---------- 목표 달성 확인 ---------- */
 
-.jjg-modal-purpose {
-  background: #f4f4f4;
+.jjg-completion-modal {
+  width: 440px;
+}
+
+.jjg-completion-goal,
+.jjg-completion-condition {
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 11px 12px;
+  margin-bottom: 10px;
+}
+
+.jjg-completion-goal {
+  background: #f4f4f4;
+}
+
+.jjg-completion-condition {
+  background: #f0f7ff;
+  border: 1px solid #b3d8ff;
+}
+
+.jjg-completion-label {
+  margin-bottom: 4px;
+  color: #666;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.jjg-completion-value {
+  color: #222;
   font-size: 13px;
-  color: #333 !important;
-  word-break: break-all;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .jjg-choice-row {
   display: flex;
   gap: 8px;
+  margin-top: 16px;
 }
 
 .jjg-choice {
@@ -84,6 +110,12 @@
   border-color: #999;
 }
 
+.jjg-choice:disabled,
+.jjg-text-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .jjg-choice-achieved {
   color: #2e7d32;
 }
@@ -94,6 +126,31 @@
 
 .jjg-choice-failed {
   color: #8a1c17;
+}
+
+.jjg-completion-status,
+.jjg-completion-error {
+  margin: 12px 0 0 !important;
+  padding: 9px 11px;
+  border-radius: 7px;
+  font-size: 12.5px !important;
+}
+
+.jjg-completion-status {
+  background: #f5f5f5;
+  color: #555 !important;
+  text-align: center;
+}
+
+.jjg-completion-error {
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #8a1c17 !important;
+}
+
+.jjg-completion-status[hidden],
+.jjg-completion-error[hidden] {
+  display: none;
 }
 
 /* ---------- 종료 후 이탈 리포트 ---------- */
@@ -471,4 +528,3 @@
   color: #1890ff;
   margin-bottom: 14px;
 }
-

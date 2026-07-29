@@ -91,6 +91,309 @@ function loadContentScripts(storage = {}) {
   return context;
 }
 
+function createInteractiveDocument() {
+  function findById(node, id) {
+    if (node.id === id) return node;
+    for (const child of node.children) {
+      const found = findById(child, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function createElement(tagName) {
+    const listeners = {};
+    const element = {
+      tagName: String(tagName).toUpperCase(),
+      id: "",
+      className: "",
+      textContent: "",
+      children: [],
+      parentNode: null,
+      hidden: false,
+      disabled: false,
+      dataset: {},
+      classList: {
+        add(className) {
+          element.className = `${element.className} ${className}`.trim();
+        },
+      },
+      appendChild(child) {
+        child.parentNode = element;
+        element.children.push(child);
+        return child;
+      },
+      remove() {
+        if (!element.parentNode) return;
+        element.parentNode.children = element.parentNode.children.filter(
+          (child) => child !== element
+        );
+        element.parentNode = null;
+      },
+      addEventListener(type, handler) {
+        listeners[type] = handler;
+      },
+      querySelector(selector) {
+        return selector.startsWith("#") ? findById(element, selector.slice(1)) : null;
+      },
+      click() {
+        if (element.disabled || !listeners.click) return undefined;
+        return listeners.click();
+      },
+    };
+    return element;
+  }
+
+  const document = {
+    createElement,
+    body: null,
+    getElementById(id) {
+      return findById(document.body, id);
+    },
+  };
+  document.body = createElement("body");
+  return document;
+}
+
+function allText(node) {
+  return [node.textContent, ...node.children.flatMap(allText)].filter(Boolean).join(" ");
+}
+
+function allTags(node) {
+  return [node.tagName, ...node.children.flatMap(allTags)];
+}
+
+function createCompletionHarness({
+  status = "ending",
+  purpose = "해시테이블 공부",
+  goalProfile = null,
+} = {}) {
+  const document = createInteractiveDocument();
+  const storage = {
+    jjg_purpose: purpose,
+    jjg_goal_profile: goalProfile,
+  };
+  const context = vm.createContext({
+    console,
+    document,
+    Promise,
+    setTimeout,
+    clearTimeout,
+  });
+  context.globalThis = context;
+  vm.runInContext(fs.readFileSync("shared/schema.js", "utf8"), context, {
+    filename: "shared/schema.js",
+  });
+  context.JJG_STORAGE = {
+    async get(keys) {
+      const values = {};
+      keys.forEach((key) => {
+        values[key] = storage[key];
+      });
+      return values;
+    },
+  };
+  context.JJG_SESSION = {
+    async getStatus() {
+      return status;
+    },
+  };
+  vm.runInContext(fs.readFileSync("content/completion.js", "utf8"), context, {
+    filename: "content/completion.js",
+  });
+  return { context, document };
+}
+
+async function testCompletionUI() {
+  // 1~3. ending에서만 표시한다.
+  for (const [status, expected] of [
+    ["active", false],
+    ["ending", true],
+    ["ended", false],
+    [null, false],
+  ]) {
+    const { context, document } = createCompletionHarness({ status });
+    assert.equal(
+      await context.JJG_COMPLETION.askCompletion({ onConfirm() {}, onCancel() {} }),
+      expected
+    );
+    assert.equal(Boolean(document.getElementById("jjg-completion-backdrop")), expected);
+  }
+
+  // 4. 정상 goalProfile 표시.
+  {
+    const { context, document } = createCompletionHarness({
+      goalProfile: {
+        rawPurpose: "해시테이블 공부",
+        mainGoal: "해시테이블의 원리와 구현 학습",
+        allowedTopics: [],
+        borderlineTopics: [],
+        blockedTopics: [],
+        completionCondition: "체이닝과 오픈 어드레싱의 차이를 설명할 수 있음",
+      },
+    });
+    await context.JJG_COMPLETION.askCompletion({ onConfirm() {}, onCancel() {} });
+    const text = allText(document.body);
+    assert.match(text, /해시테이블의 원리와 구현 학습/);
+    assert.match(text, /체이닝과 오픈 어드레싱의 차이/);
+  }
+
+  // 5~6. profile 또는 completionCondition이 없으면 purpose/mainGoal 순으로 fallback한다.
+  {
+    const noProfile = createCompletionHarness({ purpose: "SQL 공부" });
+    await noProfile.context.JJG_COMPLETION.askCompletion({ onConfirm() {}, onCancel() {} });
+    assert.match(allText(noProfile.document.body), /SQL 공부/);
+
+    const noCondition = createCompletionHarness({
+      goalProfile: {
+        rawPurpose: "SQL 공부",
+        mainGoal: "JOIN 원리 학습",
+        allowedTopics: [],
+        borderlineTopics: [],
+        blockedTopics: [],
+        completionCondition: "",
+      },
+    });
+    await noCondition.context.JJG_COMPLETION.askCompletion({ onConfirm() {}, onCancel() {} });
+    assert.match(allText(noCondition.document.body), /JOIN 원리 학습/);
+  }
+
+  async function choose(status) {
+    const { context, document } = createCompletionHarness();
+    const received = [];
+    await context.JJG_COMPLETION.askCompletion({
+      async onConfirm(value) {
+        received.push(value);
+        return true;
+      },
+      onCancel() {
+        throw new Error("취소 callback이 호출되면 안 됨");
+      },
+    });
+    const row = document.getElementById("jjg-completion-choices");
+    const button = row.children.find((item) => item.dataset.completionStatus === status);
+    await button.click();
+    return received;
+  }
+
+  // 7~9. 세 가지 결과 enum을 그대로 한 번 전달한다.
+  assert.deepEqual(await choose("achieved"), ["achieved"]);
+  assert.deepEqual(await choose("partial"), ["partial"]);
+  assert.deepEqual(await choose("not_achieved"), ["not_achieved"]);
+
+  // 10. 계속 보기는 onCancel만 호출한다.
+  {
+    const { context, document } = createCompletionHarness();
+    let confirms = 0;
+    let cancels = 0;
+    await context.JJG_COMPLETION.askCompletion({
+      onConfirm() {
+        confirms += 1;
+      },
+      async onCancel() {
+        cancels += 1;
+        return true;
+      },
+    });
+    await document.getElementById("jjg-completion-cancel").click();
+    assert.equal(confirms, 0);
+    assert.equal(cancels, 1);
+  }
+
+  // 11. 빠른 중복 클릭은 callback을 한 번만 실행한다.
+  {
+    const { context, document } = createCompletionHarness();
+    let calls = 0;
+    let release;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    await context.JJG_COMPLETION.askCompletion({
+      async onConfirm() {
+        calls += 1;
+        await pending;
+        return true;
+      },
+      onCancel() {},
+    });
+    const button = document.getElementById("jjg-completion-choices").children[0];
+    const first = button.click();
+    button.click();
+    assert.equal(calls, 1);
+    release();
+    await first;
+  }
+
+  // 12. 이미 표시된 모달은 중복 생성하지 않는다.
+  {
+    const { context, document } = createCompletionHarness();
+    assert.equal(await context.JJG_COMPLETION.askCompletion({}), true);
+    assert.equal(await context.JJG_COMPLETION.askCompletion({}), false);
+    assert.equal(
+      document.body.children.filter((child) => child.id === "jjg-completion-backdrop").length,
+      1
+    );
+  }
+
+  // 13. callback 실패 시 모달과 오류를 유지한다.
+  {
+    const { context, document } = createCompletionHarness();
+    await context.JJG_COMPLETION.askCompletion({
+      async onConfirm() {
+        return false;
+      },
+      onCancel() {},
+    });
+    await document.getElementById("jjg-completion-choices").children[0].click();
+    assert.ok(document.getElementById("jjg-completion-backdrop"));
+    const error = document.getElementById("jjg-completion-error");
+    assert.equal(error.hidden, false);
+    assert.match(error.textContent, /저장하지 못했습니다/);
+  }
+
+  // 14. 사용자/AI 문자열은 텍스트 노드로만 표시한다.
+  {
+    const malicious = '<img src=x onerror="globalThis.attacked=true">';
+    const maliciousCondition = "<script>globalThis.attacked=true</script>";
+    const { context, document } = createCompletionHarness({
+      purpose: malicious,
+      goalProfile: {
+        rawPurpose: malicious,
+        mainGoal: malicious,
+        allowedTopics: [],
+        borderlineTopics: [],
+        blockedTopics: [],
+        completionCondition: maliciousCondition,
+      },
+    });
+    await context.JJG_COMPLETION.askCompletion({});
+    assert.match(allText(document.body), /<img src=x/);
+    assert.match(allText(document.body), /<script>/);
+    assert.equal(context.attacked, undefined);
+    assert.equal(allTags(document.body).some((tag) => ["IMG", "SCRIPT"].includes(tag)), false);
+  }
+
+  // 15. callback 안의 저장 → ended → 리포트 순서를 모두 기다린 뒤 닫는다.
+  {
+    const { context, document } = createCompletionHarness();
+    const events = [];
+    await context.JJG_COMPLETION.askCompletion({
+      async onConfirm() {
+        events.push("completion_saved");
+        await Promise.resolve();
+        events.push("ended");
+        await Promise.resolve();
+        events.push("report_shown");
+        return true;
+      },
+      onCancel() {},
+    });
+    await document.getElementById("jjg-completion-choices").children[0].click();
+    assert.deepEqual(events, ["completion_saved", "ended", "report_shown"]);
+    assert.equal(document.getElementById("jjg-completion-backdrop"), null);
+  }
+}
+
 // 세션 종료 명세의 제약들이 실제로 지켜지는지 검증한다.
 async function testSessionLifecycle() {
   const storage = {};
@@ -204,7 +507,8 @@ function run() {
     assert.equal(storage.jjg_session_log.length, 2);
 
     await testSessionLifecycle();
-    console.log("content script 로드/동작 시나리오 9개 통과");
+    await testCompletionUI();
+    console.log("content script 및 목표 달성 확인 시나리오 24개 통과");
   })();
 }
 

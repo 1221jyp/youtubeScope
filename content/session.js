@@ -84,7 +84,10 @@
   // 이미 active가 아니면 아무것도 하지 않으므로 중복 클릭이 안전하다.
   async function beginEnding() {
     if ((await getStatus()) !== SESSION_STATUS.ACTIVE) return false;
-    await root.JJG_STORAGE.set({ [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ENDING });
+    const saved = await root.JJG_STORAGE.set({
+      [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ENDING,
+    });
+    if (!saved) return false;
     await renderSessionBar();
     return true;
   }
@@ -92,7 +95,10 @@
   // 목표 확인을 취소하면 몰입 상태로 되돌린다.
   async function cancelEnding() {
     if ((await getStatus()) !== SESSION_STATUS.ENDING) return false;
-    await root.JJG_STORAGE.set({ [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ACTIVE });
+    const saved = await root.JJG_STORAGE.set({
+      [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ACTIVE,
+    });
+    if (!saved) return false;
     await renderSessionBar();
     return true;
   }
@@ -112,11 +118,15 @@
     }
 
     // 결과 저장이 끝난 뒤에 상태를 바꾼다. 순서가 바뀌면 결과 없는 ended가 생긴다.
-    await root.JJG_STORAGE.set({ [STORAGE_KEYS.COMPLETION_RESULT]: completion.value });
-    await root.JJG_STORAGE.set({
+    const completionSaved = await root.JJG_STORAGE.set({
+      [STORAGE_KEYS.COMPLETION_RESULT]: completion.value,
+    });
+    if (!completionSaved) return false;
+    const sessionSaved = await root.JJG_STORAGE.set({
       [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ENDED,
       [STORAGE_KEYS.SESSION_ENDED_AT]: Date.now(),
     });
+    if (!sessionSaved) return false;
     await renderSessionBar();
     return true;
   }
@@ -171,8 +181,9 @@
     // 목표 달성 확인은 별도 모듈이 담당한다 (용진 파트: content/completion.js).
     root.JJG_COMPLETION.askCompletion({
       onConfirm: async (completionStatus) => {
-        if (!(await completeSession(completionStatus))) return;
-        root.JJG_REPORT_MODAL.show();
+        if (!(await completeSession(completionStatus))) return false;
+        await root.JJG_REPORT_MODAL.show();
+        return true;
       },
       onCancel: () => cancelEnding(),
     });
