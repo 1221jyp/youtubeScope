@@ -343,3 +343,132 @@
     transform: rotate(360deg);
   }
 }
+
+/* ---------- AI 목적 구체화 모달 추가 스타일 ---------- */
+
+.jjg-profile-modal {
+  width: 420px !important;
+  max-width: 92vw !important;
+}
+
+.jjg-raw-purpose-badge {
+  background: #f0f4f8;
+  border-left: 4px solid #1976d2;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1565c0;
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+
+.jjg-profile-section {
+  margin-bottom: 12px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.jjg-profile-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #444;
+  margin-bottom: 6px;
+}
+
+.jjg-profile-content {
+  font-size: 13px;
+  color: #222;
+  line-height: 1.5;
+}
+
+.jjg-topic-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.jjg-topic-pill {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.jjg-topic-pill.allowed {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.jjg-topic-pill.borderline {
+  background: #fff3e0;
+  color: #ef6c00;
+  border: 1px solid #ffe0b2;
+}
+
+.jjg-confirm-btn {
+  width: 100%;
+  padding: 11px 12px;
+  background: #cc0000;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.jjg-confirm-btn:hover {
+  background: #a80000;
+}
+
+.jjg-secondary-btn {
+  width: 100%;
+  padding: 9px 12px;
+  background: #f1f1f1;
+  color: #333;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.jjg-secondary-btn:hover {
+  background: #e4e4e4;
+}
+
+.jjg-spinner-dark {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #eee;
+  border-top-color: #cc0000;
+  border-radius: 50%;
+  margin: 10px auto 16px;
+  animation: jjg-spin 0.8s linear infinite;
+}
+
+.jjg-modal-error {
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #8a1c17;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+}
+
+.jjg-modal-condition {
+  background: #f0f7ff;
+  border: 1px solid #b3d8ff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: #1890ff;
+  margin-bottom: 14px;
+}
+

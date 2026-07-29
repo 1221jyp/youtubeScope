@@ -12,6 +12,7 @@ const BACKGROUND_FILES = [
   "background/judge.js",
   "background/reason.js",
   "background/report.js",
+  "background/goal.js",
   "background/main.js",
 ];
 
@@ -151,7 +152,7 @@ async function run() {
     const harness = createHarness(baseStorage([]));
     harness.setFetch(async (url) => {
       assert.match(url, /generativelanguage\.googleapis\.com/);
-      return geminiVerdictResponse({ related: "false", reason: "목적과 무관" });
+      return geminiVerdictResponse({ decision: "block", score: 10, reason: "목적과 무관" });
     });
     const verdict = await harness.send({
       type: "JUDGE_VIDEO",
@@ -160,17 +161,18 @@ async function run() {
       title: "해시테이블 강의",
       description: "",
     });
-    assert.equal(verdict.related, false);
+    assert.equal(verdict.decision, "block");
+    assert.equal(verdict.score, 10);
     assert.equal(
-      harness.storage.jjg_verdict_cache["v4||해시테이블 공부||video-1"].related,
-      false
+      harness.storage.jjg_verdict_cache["v5||해시테이블 공부||video-1"].decision,
+      "block"
     );
   }
 
   {
     const harness = createHarness(baseStorage([]));
     harness.setFetch(async () =>
-      geminiVerdictResponse({ related: true, reason: "The video seems useful." })
+      geminiVerdictResponse({ decision: "allow", score: 90, reason: "The video seems useful." })
     );
     const verdict = await harness.send({
       type: "JUDGE_VIDEO",
@@ -179,9 +181,25 @@ async function run() {
       title: "개발자 브이로그: 회사에서의 하루",
       description: "",
     });
-    assert.equal(verdict.related, false);
+    assert.equal(verdict.decision, "block");
     assert.equal(verdict.guardrail, true);
     assert.match(verdict.reason, /브이로그/);
+  }
+
+  {
+    const harness = createHarness(baseStorage([]));
+    harness.setFetch(async () =>
+      geminiVerdictResponse({ decision: "ask_reason", score: 55, reason: "코딩 면접 후기 영상입니다." })
+    );
+    const verdict = await harness.send({
+      type: "JUDGE_VIDEO",
+      purpose: "해시테이블 공부",
+      videoId: "interview-1",
+      title: "개발자 코딩 면접 후기",
+      description: "",
+    });
+    assert.equal(verdict.decision, "ask_reason");
+    assert.equal(verdict.score, 55);
   }
 
   {
@@ -406,7 +424,7 @@ async function run() {
   {
     const harness = createHarness(baseStorage([]));
     harness.setFetch(async () =>
-      geminiVerdictResponse({ related: true, reason: "목적과 직접 연결됨" })
+      geminiVerdictResponse({ decision: "allow", score: 95, reason: "목적과 직접 연결됨" })
     );
     const verdict = await withTimeout(
       harness.send({
@@ -418,8 +436,92 @@ async function run() {
       }),
       "JUDGE_REASON"
     );
-    assert.equal(verdict.related, true);
+    assert.equal(verdict.decision, "allow");
     assert.equal(verdict.failOpen, undefined);
+  }
+
+  {
+    const harness = createHarness(baseStorage([]));
+    harness.setFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: "structure_goal",
+                    args: {
+                      rawPurpose: "해시테이블 공부",
+                      mainGoal: "해시테이블의 원리와 구현 학습",
+                      allowedTopics: ["해시 함수", "체이닝"],
+                      borderlineTopics: ["코딩테스트 후기"],
+                      blockedTopics: ["개발자 브이로그"],
+                      completionCondition: "체이닝과 오픈 어드레싱 차이를 설명 가능",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+
+    const response = await harness.send({
+      type: "GENERATE_GOAL_PROFILE",
+      purpose: "해시테이블 공부",
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(response.goalProfile.rawPurpose, "해시테이블 공부");
+    assert.equal(response.goalProfile.mainGoal, "해시테이블의 원리와 구현 학습");
+    assert.deepEqual(Array.from(response.goalProfile.allowedTopics), ["해시 함수", "체이닝"]);
+    assert.equal(response.goalProfile.completionCondition, "체이닝과 오픈 어드레싱 차이를 설명 가능");
+  }
+
+  {
+    const harness = createHarness(baseStorage([]));
+    // AI가 유효하지 않은 항목(예: allowedTopics가 숫자인 배열)을 준 경우 normalizeGoalProfile에서 rejected
+    harness.setFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: {
+                    name: "structure_goal",
+                    args: {
+                      rawPurpose: "해시테이블 공부",
+                      mainGoal: "목표",
+                      allowedTopics: [123, 456],
+                      borderlineTopics: [],
+                      blockedTopics: [],
+                      completionCondition: "완료 조건",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    }));
+
+    const response = await harness.send({
+      type: "GENERATE_GOAL_PROFILE",
+      purpose: "해시테이블 공부",
+    });
+
+    assert.equal(response.ok, false);
+    assert.match(response.error, /유효하지 않습니다/);
   }
 
   {
@@ -428,7 +530,7 @@ async function run() {
     assert.match(popupSource, /item\.textContent/);
   }
 
-  console.log("background/popup 핵심 시나리오 16개 통과");
+  console.log("background/popup 핵심 시나리오 18개 통과");
 }
 
 run().catch((error) => {

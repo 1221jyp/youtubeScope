@@ -8,7 +8,7 @@
   const { callVerdict } = root.JJG_VERDICT;
 
   // 판정 기준이나 프롬프트를 바꾸면 이 값을 올려서 과거 캐시를 무효화한다.
-  const CACHE_VERSION = "v4";
+  const CACHE_VERSION = "v5";
 
   async function getCache() {
     const data = await root.JJG_STORAGE.get([STORAGE_KEYS.VERDICT_CACHE]);
@@ -34,9 +34,12 @@
       const { apiKey, model } = await getConfig();
       if (!apiKey) return failOpen("Gemini API 키가 설정되지 않음");
 
+      const storageData = await root.JJG_STORAGE.get([STORAGE_KEYS.GOAL_PROFILE]);
+      const goalProfile = storageData[STORAGE_KEYS.GOAL_PROFILE] || null;
+
       let verdict;
       try {
-        verdict = await callVerdict({ apiKey, model, purpose, title, description });
+        verdict = await callVerdict({ apiKey, model, purpose, goalProfile, title, description });
       } catch (err) {
         const reason = (err && err.message) || "판정 실패";
         console.warn("[조준경] fail-open:", reason, "| title:", title);

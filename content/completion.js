@@ -27,6 +27,9 @@
     if (document.getElementById(BACKDROP_ID)) return;
 
     const purpose = await root.JJG_SESSION.getPurpose();
+    const data = await root.JJG_STORAGE.get([root.JJG_SCHEMA.STORAGE_KEYS.GOAL_PROFILE]);
+    const goalProfile = data[root.JJG_SCHEMA.STORAGE_KEYS.GOAL_PROFILE];
+    const completionCondition = goalProfile && goalProfile.completionCondition ? goalProfile.completionCondition : "";
 
     const backdrop = document.createElement("div");
     backdrop.id = BACKDROP_ID;
@@ -35,6 +38,11 @@
       <div class="jjg-modal">
         <h2>목표를 이루셨나요?</h2>
         <p class="jjg-modal-purpose">${escapeHtml(purpose || "(목적 없음)")}</p>
+        ${
+          completionCondition
+            ? `<div class="jjg-modal-condition"><strong>달성 조건:</strong> ${escapeHtml(completionCondition)}</div>`
+            : ""
+        }
         <div class="jjg-choice-row" id="jjg-completion-choices"></div>
         <button class="jjg-text-btn" id="jjg-completion-cancel">아직 더 볼래요</button>
       </div>

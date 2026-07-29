@@ -11,7 +11,8 @@
 
   // AI가 판정하지 못했을 때 사용자를 막지 않기 위한 공통 응답.
   function failOpen(reason) {
-    return { related: true, reason, failOpen: true };
+    const decision = root.JJG_SCHEMA.VIDEO_DECISIONS ? root.JJG_SCHEMA.VIDEO_DECISIONS.ALLOW : "allow";
+    return { decision, score: 100, related: true, reason, failOpen: true };
   }
 
   async function getConfig() {

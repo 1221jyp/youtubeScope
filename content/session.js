@@ -53,10 +53,22 @@
   }
 
   // 새 목적을 정하면 이전 세션의 로그·리포트·달성 결과를 모두 초기화하고 active로 돌아간다.
-  async function startNewSession(purpose) {
+  async function startNewSession(purpose, goalProfile = null) {
     const session = createSession();
+
+    let validGoalProfile = null;
+    if (goalProfile) {
+      const check = root.JJG_SCHEMA.normalizeGoalProfile(goalProfile);
+      if (check.valid) {
+        validGoalProfile = check.value;
+      } else {
+        console.warn("[조준경] 유효하지 않은 goalProfile 저장 거부:", check.errors);
+      }
+    }
+
     await root.JJG_STORAGE.set({
       [STORAGE_KEYS.PURPOSE]: purpose,
+      [STORAGE_KEYS.GOAL_PROFILE]: validGoalProfile,
       [STORAGE_KEYS.SESSION_ID]: session.sessionId,
       [STORAGE_KEYS.SESSION_STATUS]: session.status,
       [STORAGE_KEYS.SESSION_STARTED_AT]: session.startedAt,
@@ -166,50 +178,167 @@
     });
   }
 
-  // ---------- 목적 선언 모달 ----------
+  // ---------- 목적 선언 및 구체화 모달 ----------
 
   function showPurposeModal(prefill = "") {
     if (document.getElementById("jjg-purpose-modal-backdrop")) return;
 
     const backdrop = document.createElement("div");
     backdrop.id = "jjg-purpose-modal-backdrop";
-    backdrop.innerHTML = `
-      <div id="jjg-purpose-modal">
-        <h2>지금 유튜브에서 뭘 하려고 하나요?</h2>
-        <p>목적을 한 줄로 적으면, 벗어난 영상을 볼 때 알려드릴게요.</p>
-        <input id="jjg-purpose-input" type="text" placeholder="예) 자료구조 해시테이블 공부" maxlength="80" />
-        <button id="jjg-purpose-submit">목적 설정하고 시작</button>
-        <button id="jjg-purpose-dismiss" class="jjg-text-btn">나중에 할게요</button>
-      </div>
-    `;
     document.body.appendChild(backdrop);
 
-    const input = backdrop.querySelector("#jjg-purpose-input");
-    input.value = prefill;
-    input.focus();
+    const renderInputView = (initialValue = prefill, errorText = "") => {
+      backdrop.innerHTML = `
+        <div id="jjg-purpose-modal">
+          <h2>지금 유튜브에서 뭘 하려고 하나요?</h2>
+          <p>목적을 한 줄로 적으면, AI가 목표를 구체화해 드릴게요.</p>
+          <input id="jjg-purpose-input" type="text" placeholder="예) 자료구조 해시테이블 공부" maxlength="80" />
+          ${errorText ? `<div class="jjg-modal-error">${root.JJG_UI.escapeHtml(errorText)}</div>` : ""}
+          <button id="jjg-purpose-submit">목적 분석하기</button>
+          <button id="jjg-purpose-dismiss" class="jjg-text-btn">나중에 할게요</button>
+        </div>
+      `;
 
-    const submit = async () => {
-      const value = input.value.trim();
-      if (!value) {
-        input.focus();
-        return;
-      }
-      await startNewSession(value);
-      backdrop.remove();
-      // 목적을 새로 설정한 시점에 현재 페이지가 /watch면 즉시 재판정한다.
-      // 로드 순서상 judge-flow가 나중에 등록되므로 호출 시점에 참조한다.
-      root.JJG_JUDGE_FLOW.handleWatchPage(true);
+      const input = backdrop.querySelector("#jjg-purpose-input");
+      input.value = initialValue;
+      input.focus();
+
+      const submit = async () => {
+        const rawPurpose = input.value.trim();
+        if (!rawPurpose) {
+          input.focus();
+          return;
+        }
+        renderLoadingView(rawPurpose);
+      };
+
+      const dismiss = () => backdrop.remove();
+
+      backdrop.querySelector("#jjg-purpose-submit").addEventListener("click", submit);
+      backdrop.querySelector("#jjg-purpose-dismiss").addEventListener("click", dismiss);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submit();
+        if (e.key === "Escape") dismiss();
+      });
     };
 
-    // 닫아도 기본 상태로 남을 뿐이라 판정은 시작되지 않는다.
-    const dismiss = () => backdrop.remove();
+    const renderLoadingView = async (rawPurpose) => {
+      backdrop.innerHTML = `
+        <div id="jjg-purpose-modal">
+          <div class="jjg-spinner-dark"></div>
+          <h2>AI가 목표를 분석하고 있어요...</h2>
+          <p>‘${root.JJG_UI.escapeHtml(rawPurpose)}’ 목적을 구체화하는 중입니다.</p>
+        </div>
+      `;
 
-    backdrop.querySelector("#jjg-purpose-submit").addEventListener("click", submit);
-    backdrop.querySelector("#jjg-purpose-dismiss").addEventListener("click", dismiss);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") submit();
-      if (e.key === "Escape") dismiss();
-    });
+      const response = await root.JJG_MESSAGING.sendMessageWithTimeout({
+        type: "GENERATE_GOAL_PROFILE",
+        purpose: rawPurpose,
+      });
+
+      let normalized = null;
+      if (response && response.ok && response.goalProfile) {
+        const check = root.JJG_SCHEMA.normalizeGoalProfile(response.goalProfile);
+        if (check.valid) {
+          normalized = check.value;
+        }
+      }
+
+      if (normalized) {
+        renderProfileConfirmView(rawPurpose, normalized);
+      } else {
+        const err = response?.error || "AI 목표 구체화 생성 실패";
+        renderFallbackView(rawPurpose, err);
+      }
+    };
+
+    const renderProfileConfirmView = (rawPurpose, goalProfile) => {
+      const allowedHtml = goalProfile.allowedTopics.length
+        ? goalProfile.allowedTopics.map((t) => `<span class="jjg-topic-pill allowed">${root.JJG_UI.escapeHtml(t)}</span>`).join("")
+        : "<span>없음</span>";
+      const borderlineHtml = goalProfile.borderlineTopics.length
+        ? goalProfile.borderlineTopics.map((t) => `<span class="jjg-topic-pill borderline">${root.JJG_UI.escapeHtml(t)}</span>`).join("")
+        : "<span>없음</span>";
+
+      backdrop.innerHTML = `
+        <div id="jjg-purpose-modal" class="jjg-profile-modal">
+          <h2>AI가 이해한 목표가 맞나요?</h2>
+          <div class="jjg-raw-purpose-badge">입력 목적: ${root.JJG_UI.escapeHtml(rawPurpose)}</div>
+          
+          <div class="jjg-profile-section">
+            <div class="jjg-profile-label">🎯 주요 목표</div>
+            <div class="jjg-profile-content">${root.JJG_UI.escapeHtml(goalProfile.mainGoal)}</div>
+          </div>
+
+          <div class="jjg-profile-section">
+            <div class="jjg-profile-label">✅ 허용 주제</div>
+            <div class="jjg-topic-list">${allowedHtml}</div>
+          </div>
+
+          <div class="jjg-profile-section">
+            <div class="jjg-profile-label">⚠️ 경계 주제</div>
+            <div class="jjg-topic-list">${borderlineHtml}</div>
+          </div>
+
+          ${
+            goalProfile.completionCondition
+              ? `
+              <div class="jjg-profile-section">
+                <div class="jjg-profile-label">🏁 달성 조건 (종료 시 확인)</div>
+                <div class="jjg-profile-content">${root.JJG_UI.escapeHtml(goalProfile.completionCondition)}</div>
+              </div>`
+              : ""
+          }
+
+          <button id="jjg-goal-confirm" class="jjg-confirm-btn">AI가 이해한 목표가 맞아요</button>
+          <button id="jjg-goal-edit" class="jjg-secondary-btn">목적 다시 입력하기</button>
+          <button id="jjg-purpose-dismiss" class="jjg-text-btn">나중에 할게요</button>
+        </div>
+      `;
+
+      backdrop.querySelector("#jjg-goal-confirm").addEventListener("click", async () => {
+        await startNewSession(rawPurpose, goalProfile);
+        backdrop.remove();
+        root.JJG_JUDGE_FLOW.handleWatchPage(true);
+      });
+
+      backdrop.querySelector("#jjg-goal-edit").addEventListener("click", () => {
+        renderInputView(rawPurpose);
+      });
+
+      backdrop.querySelector("#jjg-purpose-dismiss").addEventListener("click", () => {
+        backdrop.remove();
+      });
+    };
+
+    const renderFallbackView = (rawPurpose, errorMsg) => {
+      backdrop.innerHTML = `
+        <div id="jjg-purpose-modal">
+          <h2>AI 구체화 안내</h2>
+          <p class="jjg-modal-error">${root.JJG_UI.escapeHtml(errorMsg)}</p>
+          <p>원문 목적만으로 세션을 시작하시겠어요?</p>
+          <button id="jjg-fallback-confirm" class="jjg-confirm-btn">원문 목적으로 시작</button>
+          <button id="jjg-goal-edit" class="jjg-secondary-btn">목적 다시 입력하기</button>
+          <button id="jjg-purpose-dismiss" class="jjg-text-btn">나중에 할게요</button>
+        </div>
+      `;
+
+      backdrop.querySelector("#jjg-fallback-confirm").addEventListener("click", async () => {
+        await startNewSession(rawPurpose, null);
+        backdrop.remove();
+        root.JJG_JUDGE_FLOW.handleWatchPage(true);
+      });
+
+      backdrop.querySelector("#jjg-goal-edit").addEventListener("click", () => {
+        renderInputView(rawPurpose);
+      });
+
+      backdrop.querySelector("#jjg-purpose-dismiss").addEventListener("click", () => {
+        backdrop.remove();
+      });
+    };
+
+    renderInputView(prefill);
   }
 
   root.JJG_SESSION = Object.freeze({

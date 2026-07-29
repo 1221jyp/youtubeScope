@@ -46,38 +46,54 @@
 
     if (getCurrentVideoId() !== videoId) return; // 판정 도중 페이지 이동
 
-    if (verdict.related) {
-      await allowVideo(videoId, title, verdict);
+    const { VIDEO_DECISIONS, normalizeVideoVerdict } = root.JJG_SCHEMA;
+    const normalized = normalizeVideoVerdict(verdict);
+    let initialVerdict = normalized.valid ? normalized.value : null;
+
+    if (!initialVerdict) {
+      let legacyDecision = verdict?.related === false ? VIDEO_DECISIONS.BLOCK : VIDEO_DECISIONS.ALLOW;
+      let legacyScore = verdict?.score != null ? verdict.score : (legacyDecision === VIDEO_DECISIONS.ALLOW ? 100 : 10);
+      initialVerdict = {
+        decision: legacyDecision,
+        score: legacyScore,
+        reason: verdict?.reason || "",
+      };
+    }
+
+    if (initialVerdict.decision === VIDEO_DECISIONS.ALLOW) {
+      await allowVideo(videoId, title, initialVerdict, verdict.failOpen === true);
       return;
     }
-    await blockVideo(videoId, title, purpose, verdict);
+    await blockOrAskVideo(videoId, title, purpose, initialVerdict);
   }
 
-  async function allowVideo(videoId, title, verdict) {
+  async function allowVideo(videoId, title, initialVerdict, failOpen = false) {
     removeOverlay();
     playVideo();
-    if (verdict.failOpen) {
-      showToast(`⚠️ 판정 건너뜀 (${verdict.reason || "알 수 없는 이유"}) — 그냥 통과됨`);
+    if (failOpen) {
+      showToast(`⚠️ 판정 건너뜀 (${initialVerdict.reason || "알 수 없는 이유"}) — 그냥 통과됨`);
     }
     await appendLog({
       videoId,
       title,
+      initialVerdict,
       related: true,
-      action: verdict.failOpen ? "skipped" : "watched",
-      reason: verdict.failOpen ? verdict.reason : undefined,
+      action: failOpen ? "skipped" : "watched",
+      reason: failOpen ? initialVerdict.reason : undefined,
       ts: Date.now(),
     });
   }
 
-  async function blockVideo(videoId, title, purpose, verdict) {
+  async function blockOrAskVideo(videoId, title, purpose, initialVerdict) {
     // 사용자가 아무 버튼도 누르지 않고 다른 영상으로 넘어가도 기록에 남도록,
-    // 차단된 시점에 먼저 기록하고 이후 선택에 따라 같은 항목을 갱신한다.
+    // 차단/이유확인 시점에 먼저 기록하고 이후 선택에 따라 같은 항목을 갱신한다.
     const blockedIndex = await appendLog({
       videoId,
       title,
+      initialVerdict,
       related: false,
       action: "blocked",
-      reason: verdict.reason,
+      reason: initialVerdict.reason,
       userReason: "",
       reasonVerdict: null,
       ts: Date.now(),
@@ -86,7 +102,7 @@
     // 판정을 기다리는 동안 다른 영상으로 넘어갔다면 그 영상을 재생시키면 안 된다.
     const stillOnVideo = () => getCurrentVideoId() === videoId;
 
-    root.JJG_REASON_FLOW.showWarning(purpose, verdict.reason, {
+    root.JJG_REASON_FLOW.showWarning(purpose, initialVerdict, {
       onApproved: async (userReason, explanation) => {
         if (!stillOnVideo()) return;
         removeOverlay();

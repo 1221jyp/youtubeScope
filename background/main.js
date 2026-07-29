@@ -13,7 +13,8 @@ if (typeof importScripts === "function") {
     "/background/verdict.js",
     "/background/judge.js",
     "/background/reason.js",
-    "/background/report.js"
+    "/background/report.js",
+    "/background/goal.js"
   );
 }
 
@@ -22,6 +23,7 @@ const JJG_MESSAGE_HANDLERS = {
   JUDGE_VIDEO: (message) => globalThis.JJG_JUDGE.judgeVideo(message),
   JUDGE_REASON: (message) => globalThis.JJG_REASON.judgeReason(message),
   GENERATE_SESSION_REPORT: (message) => globalThis.JJG_REPORT.handleGenerateSessionReport(message),
+  GENERATE_GOAL_PROFILE: (message) => globalThis.JJG_GOAL.handleGenerateGoalProfile(message),
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

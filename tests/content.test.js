@@ -97,10 +97,20 @@ async function testSessionLifecycle() {
   const { JJG_SESSION, JJG_SCHEMA } = loadContentScripts(storage);
   const { SESSION_STATUS, COMPLETION_STATUS } = JJG_SCHEMA;
 
-  // 5. 목표 설정 → active
-  await JJG_SESSION.startNewSession("해시테이블 공부");
+  // 5. 목표 설정 → active (goalProfile 전달)
+  const sampleGoalProfile = {
+    rawPurpose: "해시테이블 공부",
+    mainGoal: "해시테이블의 원리와 구현 학습",
+    allowedTopics: ["해시 함수", "체이닝"],
+    borderlineTopics: ["코딩테스트 후기"],
+    blockedTopics: ["개발자 브이로그"],
+    completionCondition: "체이닝 설명 가능",
+  };
+  await JJG_SESSION.startNewSession("해시테이블 공부", sampleGoalProfile);
+  assert.equal(storage.jjg_purpose, "해시테이블 공부");
   assert.equal(storage.jjg_session_status, SESSION_STATUS.ACTIVE);
   assert.equal(storage.jjg_session_ended_at, null);
+  assert.deepEqual(storage.jjg_goal_profile, JJG_SCHEMA.normalizeGoalProfile(sampleGoalProfile).value);
   assert.equal(await JJG_SESSION.isFocusing(), true);
 
   // 로그가 있어도 종료 버튼이 지우지 않는지 확인하기 위해 미리 채워둔다.
@@ -138,8 +148,10 @@ async function testSessionLifecycle() {
   assert.equal(await JJG_SESSION.isFocusing(), false);
   assert.equal(await JJG_SESSION.completeSession(COMPLETION_STATUS.ACHIEVED), false);
 
-  // 새 세션을 시작하면 active로 돌아가고 이전 기록이 정리된다.
+  // 새 세션을 시작하면 active로 돌아가고 이전 기록과 goalProfile이 교체된다.
   await JJG_SESSION.startNewSession("SQL 공부");
+  assert.equal(storage.jjg_purpose, "SQL 공부");
+  assert.equal(storage.jjg_goal_profile, null, "이전 세션의 goalProfile이 재사용되지 않아야 함");
   assert.equal(storage.jjg_session_status, SESSION_STATUS.ACTIVE);
   assert.equal(storage.jjg_session_ended_at, null);
   assert.equal(storage.jjg_completion_result, null);
