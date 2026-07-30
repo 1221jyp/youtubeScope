@@ -3,7 +3,7 @@
 (function (root) {
   "use strict";
 
-  const { SESSION_STATUS } = root.JJG_SCHEMA;
+  const { SESSION_STATUS, LOG_ACTIONS } = root.JJG_SCHEMA;
   const { showOverlay, removeOverlay, playVideo, showToast } = root.JJG_UI;
   const { getCurrentVideoId, waitForTitle, extractDescription } = root.JJG_NAV;
   const { sendMessageWithTimeout } = root.JJG_MESSAGING;
@@ -78,7 +78,7 @@
       title,
       initialVerdict,
       related: true,
-      action: failOpen ? "skipped" : "watched",
+      action: failOpen ? LOG_ACTIONS.SKIPPED : LOG_ACTIONS.WATCHED,
       reason: failOpen ? initialVerdict.reason : undefined,
       ts: Date.now(),
     });
@@ -92,7 +92,7 @@
       title,
       initialVerdict,
       related: false,
-      action: "blocked",
+      action: LOG_ACTIONS.BLOCKED,
       reason: initialVerdict.reason,
       userReason: "",
       reasonVerdict: null,
@@ -108,7 +108,7 @@
         removeOverlay();
         playVideo();
         await updateLogEntry(blockedIndex, {
-          action: "approved_reason",
+          action: LOG_ACTIONS.APPROVED_REASON,
           userReason,
           reasonVerdict: { accepted: true, explanation: explanation || "" },
         });
@@ -126,13 +126,14 @@
         playVideo();
         showToast(`⚠️ 이유 판정 건너뜀 (${failReason || "알 수 없는 이유"}) — 그냥 통과됨`);
         await updateLogEntry(blockedIndex, {
-          action: "skipped",
+          action: LOG_ACTIONS.SKIPPED,
           userReason,
           reason: failReason,
+          reasonVerdict: { accepted: false, explanation: failReason || "" },
         });
       },
       onGoBack: async () => {
-        await updateLogEntry(blockedIndex, { action: "went_back" });
+        await updateLogEntry(blockedIndex, { action: LOG_ACTIONS.WENT_BACK });
         if (history.length > 1) {
           history.back();
         } else {

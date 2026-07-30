@@ -1,5 +1,5 @@
 // [파트: 세션 리포트 · 통계] popup 화면. 통계·체인 렌더와 AI 리포트 요청을 담당한다.
-const { STORAGE_KEYS } = globalThis.JJG_SCHEMA;
+const { STORAGE_KEYS, LOG_ACTIONS } = globalThis.JJG_SCHEMA;
 const storage = globalThis.JJG_STORAGE;
 // 리포트 본문 렌더링은 종료 리포트 모달과 공유한다 (shared/report-view.js).
 const { appendTextElement } = globalThis.JJG_REPORT_VIEW;
@@ -18,27 +18,27 @@ function renderChain(log) {
     const item = document.createElement("div");
     item.className = "jjg-chain-item";
     let icon = "";
-    if (entry.action === "left_anyway") {
+    if (entry.action === LOG_ACTIONS.LEFT_ANYWAY) {
       item.classList.add("left");
       icon = "⚠️ ";
-    } else if (entry.action === "approved_reason") {
+    } else if (entry.action === LOG_ACTIONS.APPROVED_REASON) {
       item.classList.add("approved");
       icon = "✅ ";
-    } else if (entry.action === "went_back") {
+    } else if (entry.action === LOG_ACTIONS.WENT_BACK) {
       item.classList.add("prevented");
       icon = "↩️ ";
-    } else if (entry.action === "skipped") {
-      item.classList.add("skipped");
+    } else if (entry.action === LOG_ACTIONS.SKIPPED) {
+      item.classList.add(LOG_ACTIONS.SKIPPED);
       icon = "⏭️ ";
-    } else if (entry.action === "blocked") {
-      item.classList.add("blocked");
+    } else if (entry.action === LOG_ACTIONS.BLOCKED) {
+      item.classList.add(LOG_ACTIONS.BLOCKED);
       icon = "🚫 ";
     }
     item.textContent = `${icon}${entry.title || "(제목 없음)"}`;
-    if ((entry.action === "skipped" || entry.action === "blocked") && entry.reason) {
+    if ((entry.action === LOG_ACTIONS.SKIPPED || entry.action === LOG_ACTIONS.BLOCKED) && entry.reason) {
       appendTextElement(item, "small", "", ` (${entry.reason})`);
     }
-    if (entry.action === "approved_reason" && entry.userReason) {
+    if (entry.action === LOG_ACTIONS.APPROVED_REASON && entry.userReason) {
       appendTextElement(item, "small", "", ` (내 이유: ${entry.userReason})`);
     }
     chainEl.appendChild(item);
@@ -101,16 +101,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("jjg-purpose").textContent = `목적: ${purpose}`;
   document.getElementById("jjg-total").textContent = String(log.length);
   document.getElementById("jjg-leaves").textContent = String(
-    log.filter((entry) => entry.action === "left_anyway").length
+    log.filter((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY).length
   );
   document.getElementById("jjg-approved").textContent = String(
-    log.filter((entry) => entry.action === "approved_reason").length
+    log.filter((entry) => entry.action === LOG_ACTIONS.APPROVED_REASON).length
   );
   document.getElementById("jjg-skipped").textContent = String(
-    log.filter((entry) => entry.action === "skipped").length
+    log.filter((entry) => entry.action === LOG_ACTIONS.SKIPPED).length
   );
   document.getElementById("jjg-blocked").textContent = String(
-    log.filter((entry) => entry.action === "blocked").length
+    log.filter((entry) => entry.action === LOG_ACTIONS.BLOCKED).length
   );
   renderChain(log);
 

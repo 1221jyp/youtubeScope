@@ -4,14 +4,14 @@
 (function (root) {
   "use strict";
 
-  const { STORAGE_KEYS } = root.JJG_SCHEMA;
+  const { STORAGE_KEYS, LOG_ACTIONS } = root.JJG_SCHEMA;
   const { callFunction, getConfig } = root.JJG_GEMINI;
   const { textOrEmpty, stringArray, uniqueStrings } = root.JJG_TEXT;
 
   const TIMEOUT_MS = 90000;
 
   // 실제 사용자의 선택이 담긴 action만 리포트 분석 대상이다 (skipped는 AI 장애라 제외).
-  const ANALYZABLE_ACTIONS = ["watched", "approved_reason", "left_anyway", "went_back", "blocked"];
+  const ANALYZABLE_ACTIONS = [LOG_ACTIONS.WATCHED, LOG_ACTIONS.APPROVED_REASON, LOG_ACTIONS.LEFT_ANYWAY, LOG_ACTIONS.WENT_BACK, LOG_ACTIONS.BLOCKED];
 
   // 같은 세션에 대한 동시 요청을 하나로 합친다 (popup을 여러 번 열어도 API는 한 번만 호출).
   const inFlight = new Map();
@@ -70,15 +70,15 @@
 
   function buildEvidenceReport(purpose, log) {
     const usable = log.filter(
-      (entry) => ANALYZABLE_ACTIONS.includes(entry?.action) || entry?.action === "skipped"
+      (entry) => ANALYZABLE_ACTIONS.includes(entry?.action) || entry?.action === LOG_ACTIONS.SKIPPED
     );
-    const watchedCount = usable.filter((entry) => entry.action === "watched").length;
-    const approvedCount = usable.filter((entry) => entry.action === "approved_reason").length;
-    const deviationCount = usable.filter((entry) => entry.action === "left_anyway").length;
-    const preventedCount = usable.filter((entry) => entry.action === "went_back").length;
-    const skippedCount = usable.filter((entry) => entry.action === "skipped").length;
-    const blockedCount = usable.filter((entry) => entry.action === "blocked").length;
-    const firstIndex = usable.findIndex((entry) => entry.action === "left_anyway");
+    const watchedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.WATCHED).length;
+    const approvedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.APPROVED_REASON).length;
+    const deviationCount = usable.filter((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY).length;
+    const preventedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.WENT_BACK).length;
+    const skippedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.SKIPPED).length;
+    const blockedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.BLOCKED).length;
+    const firstIndex = usable.findIndex((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY);
     const first = firstIndex >= 0 ? usable[firstIndex] : null;
 
     const facts = [
@@ -128,7 +128,7 @@
       firstIndex >= 0
         ? usable
             .slice(Math.max(0, firstIndex - 2), Math.min(usable.length, firstIndex + 3))
-            .filter((entry) => entry.action !== "skipped")
+            .filter((entry) => entry.action !== LOG_ACTIONS.SKIPPED)
             .map((entry) => textOrEmpty(entry.title) || "(제목 없음)")
         : [];
 
@@ -295,3 +295,4 @@
   root.JJG_REPORT = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
+
