@@ -310,6 +310,16 @@
       backdrop.querySelector("#jjg-goal-confirm").addEventListener("click", async () => {
         await startNewSession(rawPurpose, goalProfile);
         backdrop.remove();
+        await root.JJG_SHORTS_BLOCK.syncShortsUiVisibility();
+        // 방금 active로 전환했으니 캐시를 기다리지 않고 직접 확인한다.
+        if (root.JJG_SHORTS_BLOCK.isShortsUrl(location.href)) {
+          if (history.length > 1) {
+            history.back();
+          } else {
+            location.href = "https://www.youtube.com/";
+          }
+          return;
+        }
         root.JJG_JUDGE_FLOW.handleWatchPage(true);
       });
 
@@ -337,6 +347,16 @@
       backdrop.querySelector("#jjg-fallback-confirm").addEventListener("click", async () => {
         await startNewSession(rawPurpose, null);
         backdrop.remove();
+        await root.JJG_SHORTS_BLOCK.syncShortsUiVisibility();
+        // 방금 active로 전환했으니 캐시를 기다리지 않고 직접 확인한다.
+        if (root.JJG_SHORTS_BLOCK.isShortsUrl(location.href)) {
+          if (history.length > 1) {
+            history.back();
+          } else {
+            location.href = "https://www.youtube.com/";
+          }
+          return;
+        }
         root.JJG_JUDGE_FLOW.handleWatchPage(true);
       });
 

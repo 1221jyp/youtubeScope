@@ -30,6 +30,7 @@
         "content/log.js",
         "content/navigation.js",
         "content/session.js",
+        "content/shorts-block.js",
         "content/completion.js",
         "content/report-modal.js",
         "content/reason-flow.js",
