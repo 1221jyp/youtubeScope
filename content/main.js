@@ -3,17 +3,24 @@
 (function (root) {
   "use strict";
 
-  const { STORAGE_KEYS } = root.JJG_SCHEMA;
+  const { STORAGE_KEYS, SESSION_STATUS } = root.JJG_SCHEMA;
   const { handleWatchPage } = root.JJG_JUDGE_FLOW;
   const { getSession, renderSessionBar, showPurposeModal } = root.JJG_SESSION;
+  const { syncShortsUiVisibility, blockShortsIfNeeded } = root.JJG_SHORTS_BLOCK;
 
   const NAVIGATE_DEBOUNCE_MS = 150;
   let navigateDebounceTimer = null;
 
   // 유튜브는 한 번의 이동에 여러 이벤트를 흘리므로 짧게 묶어서 한 번만 처리한다.
   function onNavigate() {
+    // 쇼츠는 진입 즉시 자동재생되므로 디바운스를 거치지 않고 그 자리에서 바로 판단한다.
+    // (blockShortsIfNeeded는 캐시된 몰입 상태만 보고 동기적으로 되감는다)
+    if (blockShortsIfNeeded()) return;
     clearTimeout(navigateDebounceTimer);
-    navigateDebounceTimer = setTimeout(() => handleWatchPage(false), NAVIGATE_DEBOUNCE_MS);
+    navigateDebounceTimer = setTimeout(async () => {
+      await syncShortsUiVisibility();
+      handleWatchPage(false);
+    }, NAVIGATE_DEBOUNCE_MS);
   }
 
   document.addEventListener("yt-navigate-finish", onNavigate);
@@ -25,12 +32,24 @@
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local" || !changes[STORAGE_KEYS.SESSION_STATUS]) return;
       renderSessionBar();
+      syncShortsUiVisibility();
     });
   }
 
   (async () => {
+    // 페이지가 쇼츠로 바로 열렸을 수도 있으니 부팅 시에도 먼저 확인한다.
+    // (JJG_SHORTS_BLOCK의 몰입 상태 캐시가 아직 초기화 중일 수 있어 여기서는 getSession()으로 직접 판단한다)
     const session = await getSession();
     await renderSessionBar();
+    await syncShortsUiVisibility();
+    if (session.status === SESSION_STATUS.ACTIVE && root.JJG_SHORTS_BLOCK.isShortsUrl(location.href)) {
+      if (history.length > 1) {
+        history.back();
+      } else {
+        location.href = "https://www.youtube.com/";
+      }
+      return;
+    }
     // 세션을 시작한 적이 없으면 목적 선언 모달을 띄운다. 닫으면 기본 상태로 남는다.
     if (!session.purpose) {
       showPurposeModal();
