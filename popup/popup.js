@@ -1,5 +1,10 @@
 // [파트: 세션 리포트 · 통계] popup 화면. 통계·체인 렌더와 AI 리포트 요청을 담당한다.
-const { STORAGE_KEYS, LOG_ACTIONS } = globalThis.JJG_SCHEMA;
+const {
+  STORAGE_KEYS,
+  SESSION_STATUS,
+  LOG_ACTIONS,
+  normalizeCompletionResult,
+} = globalThis.JJG_SCHEMA;
 const storage = globalThis.JJG_STORAGE;
 // 리포트 본문 렌더링은 종료 리포트 모달과 공유한다 (shared/report-view.js).
 const { appendTextElement } = globalThis.JJG_REPORT_VIEW;
@@ -115,7 +120,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderChain(log);
 
   const cached = data[STORAGE_KEYS.SESSION_REPORT];
-  if (sessionId != null && cached?.sessionId === sessionId && cached.report) {
+  const completion = normalizeCompletionResult(data[STORAGE_KEYS.COMPLETION_RESULT]);
+  if (
+    data[STORAGE_KEYS.SESSION_STATUS] === SESSION_STATUS.ENDED &&
+    completion.valid &&
+    completion.value &&
+    sessionId != null &&
+    cached?.sessionId === sessionId &&
+    cached.report
+  ) {
     renderReport(cached.report);
   }
 

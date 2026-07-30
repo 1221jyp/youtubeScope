@@ -20,6 +20,7 @@ function createHarness(initialStorage = {}) {
   const storage = { ...initialStorage };
   let listener;
   let fetchCount = 0;
+  let failStorageWrites = false;
   let fetchImpl = async () => {
     fetchCount += 1;
     return {
@@ -61,6 +62,12 @@ function createHarness(initialStorage = {}) {
           callback(result);
         },
         set(values, callback) {
+          if (failStorageWrites) {
+            chrome.runtime.lastError = { message: "storage write failed" };
+            if (callback) callback();
+            delete chrome.runtime.lastError;
+            return;
+          }
           Object.assign(storage, values);
           if (callback) callback();
         },
@@ -100,6 +107,9 @@ function createHarness(initialStorage = {}) {
         fetchCount += 1;
         return fn(...args);
       };
+    },
+    setStorageWriteFailure(value) {
+      failStorageWrites = value;
     },
     send(message) {
       return new Promise((resolve, reject) => {
@@ -141,7 +151,22 @@ function baseStorage(log) {
   return {
     jjg_purpose: "해시테이블 공부",
     jjg_session_id: 100,
-    jjg_session_log: log,
+    jjg_session_status: "ended",
+    jjg_session_started_at: 1000,
+    jjg_session_ended_at: 2000,
+    jjg_completion_result: { status: "partial", checkedAt: 2000 },
+    jjg_goal_profile: {
+      rawPurpose: "해시테이블 공부",
+      mainGoal: "해시테이블 원리 학습",
+      allowedTopics: ["해시 함수", "체이닝"],
+      borderlineTopics: ["코딩테스트 후기"],
+      blockedTopics: ["개발자 브이로그"],
+      completionCondition: "충돌 처리 방식을 설명할 수 있음",
+    },
+    jjg_session_log: log.map((entry, index) => ({
+      ts: 1100 + index,
+      ...entry,
+    })),
     jjg_gemini_api_key: "test-key",
     jjg_gemini_model: "gemini-flash-latest",
   };
@@ -202,6 +227,48 @@ async function run() {
     assert.equal(verdict.score, 55);
   }
 
+  // 종료되지 않은 세션은 같은 세션 캐시가 있어도 Gemini나 캐시 결과를 사용하지 않는다.
+  for (const status of ["active", "ending"]) {
+    const storage = baseStorage([
+      { videoId: "a", title: "강의 1", action: "watched", related: true },
+      { videoId: "b", title: "강의 2", action: "watched", related: true },
+    ]);
+    storage.jjg_session_status = status;
+    storage.jjg_session_report = {
+      sessionId: 100,
+      generatedAt: 1,
+      report: { summary: "잘못 반환되면 안 되는 캐시" },
+    };
+    const harness = createHarness(storage);
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.code, "SESSION_NOT_ENDED");
+    assert.equal(harness.fetchCount, 0);
+  }
+
+  {
+    const storage = baseStorage([
+      { videoId: "a", title: "강의 1", action: "watched", related: true },
+      { videoId: "b", title: "강의 2", action: "watched", related: true },
+    ]);
+    storage.jjg_completion_result = null;
+    const harness = createHarness(storage);
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.code, "COMPLETION_RESULT_MISSING");
+    assert.equal(harness.fetchCount, 0);
+  }
+
+  {
+    const storage = baseStorage([
+      { videoId: "a", title: "강의 1", action: "watched", related: true },
+      { videoId: "b", title: "강의 2", action: "watched", related: true },
+    ]);
+    storage.jjg_completion_result = { status: "unknown", checkedAt: "잘못된 값" };
+    const harness = createHarness(storage);
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.code, "INVALID_COMPLETION_RESULT");
+    assert.equal(harness.fetchCount, 0);
+  }
+
   {
     const harness = createHarness(baseStorage([]));
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
@@ -253,12 +320,15 @@ async function run() {
                   functionCall: {
                     name: "session_report",
                     args: {
-                      summary: "후기 영상을 거쳐 이탈했습니다.",
-                      firstDeviation: { title: "<script>가짜 제목</script>", reason: "학습 흐름에서 벗어남" },
-                      diversionPath: ["해시테이블 강의", "존재하지 않는 영상", "개발자 브이로그"],
-                      patterns: ["학습에서 브이로그로 이동함"],
-                      recommendations: ["보기 전에 목적 확인하기"],
-                      encouragement: "다음 세션에서 다시 이어가면 됩니다.",
+                      summary: "존재하지 않는 영상을 시청하며 이탈했습니다.",
+                      firstDeviation: {
+                        title: "존재하지 않는 영상",
+                        reason: "목적에서 벗어났습니다.",
+                      },
+                      diversionPath: ["해시테이블 강의", "존재하지 않는 영상"],
+                      patterns: ["존재하지 않는 영상으로 이동했습니다."],
+                      recommendations: ["존재하지 않는 영상을 피하세요."],
+                      encouragement: "다음에는 존재하지 않는 영상을 피할 수 있습니다.",
                     },
                   },
                 },
@@ -271,11 +341,15 @@ async function run() {
     }));
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
     assert.equal(response.ok, true);
+    assert.doesNotMatch(JSON.stringify(response.report), /존재하지 않는 영상/);
     assert.equal(response.report.firstDeviation.title, "개발자 브이로그");
+    assert.equal(response.report.firstDeviation.reason, "학습과 무관");
     assert.deepEqual(Array.from(response.report.diversionPath), [
       "해시테이블 강의",
       "개발자 브이로그",
     ]);
+    assert.equal(response.report.stats.actualDeviations, 1);
+    assert.equal(response.report.stats.leftAnyway, 1);
     assert.equal(harness.storage.jjg_session_report.sessionId, 100);
     const countAfterFirst = harness.fetchCount;
     const cached = await harness.send({ type: "GENERATE_SESSION_REPORT" });
@@ -297,6 +371,8 @@ async function run() {
     );
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
     assert.equal(response.ok, true);
+    assert.equal(response.report.stats.actualDeviations, 0);
+    assert.equal(response.report.stats.wentBack, 1);
   }
 
   {
@@ -398,6 +474,164 @@ async function run() {
     assert.deepEqual(Array.from(response.report.diversionPath), []);
     assert.match(response.report.summary, /승인받은 영상 1개/);
     assert.match(response.report.summary, /이탈 없음/);
+    assert.equal(response.report.stats.approvedReason, 1);
+    assert.equal(response.report.stats.actualDeviations, 0);
+  }
+
+  // 다른 sessionId의 left_anyway는 현재 세션 증거와 집계에서 제외한다.
+  {
+    const harness = createHarness(
+      baseStorage([
+        {
+          sessionId: 100,
+          videoId: "a",
+          title: "현재 강의 1",
+          action: "watched",
+          initialVerdict: { decision: "allow", score: 90, reason: "목적 관련" },
+        },
+        {
+          sessionId: 999,
+          videoId: "foreign",
+          title: "다른 세션 브이로그",
+          action: "left_anyway",
+          initialVerdict: { decision: "block", score: 10, reason: "목적과 무관" },
+        },
+        {
+          sessionId: 100,
+          videoId: "invalid",
+          title: "잘못된 로그",
+          action: "unknown_action",
+        },
+        {
+          sessionId: 100,
+          videoId: "b",
+          title: "현재 강의 2",
+          action: "watched",
+          initialVerdict: { decision: "allow", score: 95, reason: "목적 관련" },
+        },
+      ])
+    );
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.ok, true);
+    assert.equal(response.report.stats.actualDeviations, 0);
+    assert.equal(response.report.firstDeviation.title, "");
+    assert.equal(response.report.summary.includes("다른 세션 브이로그"), false);
+  }
+
+  // blocked와 skipped는 별도 횟수만 남기고 실제 이탈에는 포함하지 않는다.
+  {
+    const harness = createHarness(
+      baseStorage([
+        {
+          videoId: "a",
+          title: "관련 강의",
+          action: "watched",
+          related: true,
+        },
+        {
+          videoId: "b",
+          title: "차단 영상",
+          action: "blocked",
+          related: false,
+          reason: "목적과 무관",
+        },
+        {
+          videoId: "c",
+          title: "판정 실패 영상",
+          action: "skipped",
+          related: true,
+          reason: "AI 장애",
+        },
+      ])
+    );
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.ok, true);
+    assert.equal(response.report.stats.actualDeviations, 0);
+    assert.equal(response.report.stats.blocked, 1);
+    assert.equal(response.report.stats.skipped, 1);
+  }
+
+  // 정규화된 사용자 이유·AI 설명·goalProfile·완료 결과가 Gemini 입력에 포함된다.
+  {
+    const harness = createHarness(
+      baseStorage([
+        {
+          sessionId: 100,
+          videoId: "a",
+          title: "해시테이블 강의",
+          action: "watched",
+          initialVerdict: { decision: "allow", score: 92, reason: "목표와 직접 관련" },
+        },
+        {
+          sessionId: 100,
+          videoId: "b",
+          title: "코딩테스트 후기",
+          action: "approved_reason",
+          initialVerdict: { decision: "ask_reason", score: 55, reason: "간접 관련" },
+          userReason: "해시테이블 출제 사례를 확인하려고",
+          reasonVerdict: { accepted: true, explanation: "목적과 연결되는 구체적인 이유" },
+        },
+      ])
+    );
+    let prompt = "";
+    harness.setFetch(async (_url, options) => {
+      const request = JSON.parse(options.body);
+      prompt = request.contents[0].parts[0].text;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    functionCall: {
+                      name: "session_report",
+                      args: {
+                        summary: "세션 요약",
+                        firstDeviation: { title: "", reason: "" },
+                        diversionPath: [],
+                        patterns: [],
+                        recommendations: [],
+                        encouragement: "잘 진행했습니다.",
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        text: async () => "",
+      };
+    });
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT", force: true });
+    assert.equal(response.ok, true);
+    assert.match(prompt, /해시테이블 출제 사례를 확인하려고/);
+    assert.match(prompt, /목적과 연결되는 구체적인 이유/);
+    assert.match(prompt, /"decision":"ask_reason"/);
+    assert.match(prompt, /"score":55/);
+    assert.match(prompt, /"initialReason":"간접 관련"/);
+    assert.match(prompt, /충돌 처리 방식을 설명할 수 있음/);
+    assert.match(prompt, /"status":"partial"/);
+    assert.match(prompt, /"startedAt":1000/);
+    assert.match(prompt, /"endedAt":2000/);
+  }
+
+  // 저장 실패는 성공 응답으로 위장하지 않는다.
+  {
+    const harness = createHarness(
+      baseStorage([
+        { videoId: "a", title: "강의 1", action: "watched", related: true },
+        { videoId: "b", title: "강의 2", action: "watched", related: true },
+      ])
+    );
+    harness.setStorageWriteFailure(true);
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT", force: true });
+    assert.equal(response.ok, false);
+    assert.equal(response.code, "REPORT_SAVE_FAILED");
+    assert.equal(harness.storage.jjg_session_report, undefined);
   }
 
   // Gemini 장애로 callGemini가 던져도 JUDGE_REASON은 반드시 응답해야 한다.
@@ -528,9 +762,11 @@ async function run() {
     const popupSource = fs.readFileSync("popup/popup.js", "utf8");
     assert.equal(popupSource.includes("innerHTML"), false);
     assert.match(popupSource, /item\.textContent/);
+    assert.match(popupSource, /SESSION_STATUS\.ENDED/);
+    assert.match(popupSource, /normalizeCompletionResult/);
   }
 
-  console.log("background/popup 핵심 시나리오 18개 통과");
+  console.log("background/popup 핵심 시나리오 25개 통과");
 }
 
 run().catch((error) => {
