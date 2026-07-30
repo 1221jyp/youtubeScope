@@ -56,6 +56,10 @@ function createContext(storage) {
       observe() {}
       disconnect() {}
     },
+    MutationObserver: class {
+      observe() {}
+      disconnect() {}
+    },
     chrome: {
       runtime: {
         id: "test-extension",
@@ -496,8 +500,14 @@ function run() {
     const context = loadContentScripts(storage);
     const { appendLog, updateLogEntry } = context.JJG_LOG;
 
-    assert.equal(await appendLog({ videoId: "a", action: "watched" }), 0);
-    assert.equal(await appendLog({ videoId: "b", action: "blocked" }), 1);
+    assert.equal(
+      await appendLog({ videoId: "a", title: "영상 A", action: "watched", ts: 1000 }),
+      0
+    );
+    assert.equal(
+      await appendLog({ videoId: "b", title: "영상 B", action: "blocked", ts: 1001 }),
+      1
+    );
 
     await updateLogEntry(1, { action: "approved_reason", userReason: "이유" });
     assert.equal(storage.jjg_session_log[1].action, "approved_reason");
