@@ -127,6 +127,13 @@ function createInteractiveDocument() {
         element.children.push(child);
         return child;
       },
+      replaceChildren(...children) {
+        element.children.forEach((child) => {
+          child.parentNode = null;
+        });
+        element.children = [];
+        children.forEach((child) => element.appendChild(child));
+      },
       remove() {
         if (!element.parentNode) return;
         element.parentNode.children = element.parentNode.children.filter(
@@ -398,6 +405,50 @@ async function testCompletionUI() {
   }
 }
 
+function testNextSessionRulesView() {
+  const document = createInteractiveDocument();
+  const context = vm.createContext({ console, document });
+  context.globalThis = context;
+  vm.runInContext(fs.readFileSync("shared/report-view.js", "utf8"), context, {
+    filename: "shared/report-view.js",
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const maliciousRule = '<img src=x onerror="globalThis.attacked=true"> 시청 전에 목적 확인';
+  const maliciousEvidence = "<script>globalThis.attacked=true</script>";
+  context.JJG_REPORT_VIEW.renderNextSessionRules(container, [
+    { rule: maliciousRule, evidence: maliciousEvidence },
+  ]);
+
+  const text = allText(container);
+  assert.match(text, /다음 세션 규칙/);
+  assert.match(text, /<img src=x/);
+  assert.match(text, /근거: <script>/);
+  assert.equal(context.attacked, undefined);
+  assert.equal(allTags(container).some((tag) => ["IMG", "SCRIPT"].includes(tag)), false);
+
+  context.JJG_REPORT_VIEW.renderNextSessionRules(container, []);
+  assert.match(allText(container), /이번 세션에서는 제안할 구체적인 규칙이 없습니다\./);
+
+  const viewSource = fs.readFileSync("shared/report-view.js", "utf8");
+  const modalSource = fs.readFileSync("content/report-modal.js", "utf8");
+  const popupSource = fs.readFileSync("popup/popup.js", "utf8");
+  assert.doesNotMatch(viewSource, /\.innerHTML\s*=/);
+  assert.match(modalSource, /renderNextSessionRules/);
+  assert.match(popupSource, /renderNextSessionRules/);
+  assert.match(
+    popupSource,
+    /if \(Array\.isArray\(storedRules\)\) \{\s*renderRules\(storedRules\);\s*\} else if \(storedRules == null\) \{\s*requestRules\(\);/
+  );
+  assert.doesNotMatch(popupSource, /storedRules\.length/);
+  assert.ok(
+    modalSource.indexOf("renderReport(body") <
+      modalSource.lastIndexOf("loadNextSessionRules(backdrop)"),
+    "기존 리포트를 먼저 표시한 뒤 규칙을 별도로 생성해야 한다"
+  );
+}
+
 // 세션 종료 명세의 제약들이 실제로 지켜지는지 검증한다.
 async function testSessionLifecycle() {
   const storage = {};
@@ -518,7 +569,8 @@ function run() {
 
     await testSessionLifecycle();
     await testCompletionUI();
-    console.log("content script 및 목표 달성 확인 시나리오 24개 통과");
+    testNextSessionRulesView();
+    console.log("content script/목표 달성/규칙 렌더링 시나리오 통과");
   })();
 }
 

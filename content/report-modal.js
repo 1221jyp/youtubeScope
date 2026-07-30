@@ -4,12 +4,13 @@
 (function (root) {
   "use strict";
 
-  const { renderReport } = root.JJG_REPORT_VIEW;
+  const { renderReport, renderNextSessionRules } = root.JJG_REPORT_VIEW;
   const { sendMessageWithTimeout } = root.JJG_MESSAGING;
 
   const BACKDROP_ID = "jjg-report-backdrop";
   // 리포트는 background에서 최대 90초까지 걸릴 수 있다.
   const REQUEST_TIMEOUT_MS = 95000;
+  const RULES_TIMEOUT_MS = 95000;
 
   function close() {
     const backdrop = document.getElementById(BACKDROP_ID);
@@ -29,6 +30,35 @@
       p.textContent = message;
       body.appendChild(p);
     });
+  }
+
+  function getRulesContainer(backdrop) {
+    return backdrop.querySelector("#jjg-next-session-rules");
+  }
+
+  async function loadNextSessionRules(backdrop) {
+    const container = getRulesContainer(backdrop);
+    if (!container) return;
+    renderNextSessionRules(container, [], "AI가 다음 세션 규칙을 만들고 있어요...");
+
+    const response = await sendMessageWithTimeout(
+      { type: "GENERATE_NEXT_SESSION_RULES" },
+      RULES_TIMEOUT_MS
+    );
+    if (!document.getElementById(BACKDROP_ID) || !getRulesContainer(backdrop)) return;
+    if (!response || !response.ok) {
+      renderNextSessionRules(
+        container,
+        [],
+        (response && response.error) || "다음 세션 규칙을 생성하지 못했어요."
+      );
+      return;
+    }
+    renderNextSessionRules(
+      container,
+      response.rules,
+      response.reason || "제안할 다음 세션 규칙이 없습니다."
+    );
   }
 
   async function show() {
@@ -66,7 +96,14 @@
       return;
     }
 
-    setBody(backdrop, (body) => renderReport(body, response.report));
+    setBody(backdrop, (body) => {
+      renderReport(body, response.report);
+      const rulesContainer = document.createElement("div");
+      rulesContainer.id = "jjg-next-session-rules";
+      body.appendChild(rulesContainer);
+    });
+    // 규칙 생성 실패가 이미 표시된 증거 리포트를 가리지 않도록 별도로 처리한다.
+    loadNextSessionRules(backdrop);
   }
 
   root.JJG_REPORT_MODAL = Object.freeze({ show, close });

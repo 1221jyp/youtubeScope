@@ -14,6 +14,7 @@ if (typeof importScripts === "function") {
     "/background/judge.js",
     "/background/reason.js",
     "/background/report.js",
+    "/background/next-session-rules.js",
     "/background/goal.js"
   );
 }
@@ -23,6 +24,8 @@ const JJG_MESSAGE_HANDLERS = {
   JUDGE_VIDEO: (message) => globalThis.JJG_JUDGE.judgeVideo(message),
   JUDGE_REASON: (message) => globalThis.JJG_REASON.judgeReason(message),
   GENERATE_SESSION_REPORT: (message) => globalThis.JJG_REPORT.handleGenerateSessionReport(message),
+  GENERATE_NEXT_SESSION_RULES: (message) =>
+    globalThis.JJG_NEXT_SESSION_RULES.handleGenerateNextSessionRules(message),
   GENERATE_GOAL_PROFILE: (message) => globalThis.JJG_GOAL.handleGenerateGoalProfile(message),
 };
 
