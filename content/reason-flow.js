@@ -8,7 +8,7 @@
   const { sendMessageWithTimeout } = root.JJG_MESSAGING;
 
   // handlers: { onApproved(userReason, explanation), onRejected(userReason, explanation),
-  //             onSkipped(userReason, failReason), onGoBack() }
+  //             onSkipped(userReason, failReason, failStatus), onGoBack() }
   function showWarning(purpose, verdictInfo, handlers) {
     const overlay = getOverlayElement();
     if (!overlay) return;
@@ -80,8 +80,9 @@
         submitBtn.disabled = false;
         submitBtn.textContent = "AI에게 제출";
 
+        // API 오류/타임아웃: 정상 거절과 절대 섞이면 안 되므로 별도 경로로만 처리한다.
         if (verdict.failOpen) {
-          handlers.onSkipped(userReason, verdict.reason);
+          handlers.onSkipped(userReason, verdict.reason, verdict.status);
           return;
         }
         if (verdict.related) {

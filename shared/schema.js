@@ -44,6 +44,30 @@
     NOT_ACHIEVED: "not_achieved",
   });
 
+  // [신규] AI 요청 공통 상태. 모든 Gemini 호출(judge/reason/goal/report/rules)이 공유한다.
+  // idle과 loading은 UI(content script) 쪽에서만 쓰고, background 응답에는 success/error/timeout만 담긴다.
+  const AI_REQUEST_STATUS = Object.freeze({
+    IDLE: "idle",
+    LOADING: "loading",
+    SUCCESS: "success",
+    ERROR: "error",
+    TIMEOUT: "timeout",
+  });
+
+  // [신규] "정상 거절"이 아니라 "API 자체가 실패한" 원인 분류.
+  // gemini.js가 이 값을 붙여서 던지고, 호출부는 이 code로만 UI 문구/재시도 여부를 결정한다.
+  const AI_ERROR_CODES = Object.freeze({
+    API_KEY_NOT_SET: "api_key_not_set",
+    AUTH_ERROR: "auth_error",
+    RATE_LIMIT: "rate_limit",
+    NOT_FOUND: "not_found",
+    NETWORK_ERROR: "network_error",
+    TIMEOUT: "timeout",
+    PARSE_ERROR: "parse_error",
+    MESSAGE_FAILED: "message_failed", // content ↔ background 통신 자체 실패 (Gemini와 무관)
+    UNKNOWN: "unknown",
+  });
+
   const MAX_TOPICS = 20;
   const MAX_RULES = 10;
 
@@ -277,6 +301,8 @@
     VIDEO_DECISIONS,
     LOG_ACTIONS,
     COMPLETION_STATUS,
+    AI_REQUEST_STATUS,
+    AI_ERROR_CODES,
     createSession,
     normalizeSession,
     normalizeGoalProfile,
