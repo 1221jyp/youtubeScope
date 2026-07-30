@@ -10,6 +10,7 @@ const storage = globalThis.JJG_STORAGE;
 const { appendTextElement } = globalThis.JJG_REPORT_VIEW;
 
 let reportLoading = false;
+let rulesLoading = false;
 
 function renderChain(log) {
   const chainEl = document.getElementById("jjg-chain");
@@ -53,10 +54,41 @@ function renderChain(log) {
 
 function renderReport(report) {
   globalThis.JJG_REPORT_VIEW.renderReport(document.getElementById("jjg-report-output"), report);
+  const rulesContainer = document.createElement("div");
+  rulesContainer.id = "jjg-next-session-rules";
+  document.getElementById("jjg-report-output").appendChild(rulesContainer);
 
   document.getElementById("jjg-report-error").hidden = true;
   document.getElementById("jjg-report-content").hidden = false;
   document.getElementById("jjg-report-generate").hidden = true;
+}
+
+function renderRules(rules, message) {
+  const container = document.getElementById("jjg-next-session-rules");
+  if (!container) return;
+  globalThis.JJG_REPORT_VIEW.renderNextSessionRules(
+    container,
+    rules,
+    message || "이번 세션에서는 제안할 구체적인 규칙이 없습니다."
+  );
+}
+
+function requestRules() {
+  if (rulesLoading) return;
+  rulesLoading = true;
+  renderRules([], "AI가 다음 세션 규칙을 만들고 있어요...");
+  chrome.runtime.sendMessage({ type: "GENERATE_NEXT_SESSION_RULES" }, (response) => {
+    rulesLoading = false;
+    if (chrome.runtime.lastError || !response) {
+      renderRules([], "다음 세션 규칙을 불러오지 못했습니다.");
+      return;
+    }
+    if (!response.ok) {
+      renderRules([], response.error);
+      return;
+    }
+    renderRules(response.rules, response.reason);
+  });
 }
 
 function showReportError(message) {
@@ -94,6 +126,7 @@ function requestReport(force = false) {
       return;
     }
     renderReport(response.report);
+    requestRules();
   });
 }
 
@@ -130,6 +163,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     cached.report
   ) {
     renderReport(cached.report);
+    const storedRules = data[STORAGE_KEYS.NEXT_SESSION_RULES];
+    if (Array.isArray(storedRules)) {
+      renderRules(storedRules);
+    } else if (storedRules == null) {
+      requestRules();
+    }
   }
 
   document.getElementById("jjg-report-generate").addEventListener("click", () => requestReport(false));

@@ -56,7 +56,45 @@
     addSection(container, "AI 마무리 메시지", report?.encouragement);
   }
 
-  const api = Object.freeze({ appendTextElement, addSection, addList, renderReport });
+  function renderNextSessionRules(
+    container,
+    rules,
+    emptyMessage = "이번 세션에서는 제안할 구체적인 규칙이 없습니다."
+  ) {
+    container.replaceChildren();
+    const section = document.createElement("section");
+    section.className = "jjg-report-section jjg-next-session-rules";
+    appendTextElement(section, "h3", "", "다음 세션 규칙");
+
+    if (!Array.isArray(rules) || rules.length === 0) {
+      appendTextElement(section, "p", "", emptyMessage);
+      container.appendChild(section);
+      return;
+    }
+
+    const list = document.createElement("ol");
+    rules.forEach((item) => {
+      const listItem = document.createElement("li");
+      appendTextElement(listItem, "div", "jjg-next-rule", item?.rule || "");
+      appendTextElement(
+        listItem,
+        "div",
+        "jjg-next-rule-evidence",
+        `근거: ${item?.evidence || ""}`
+      );
+      list.appendChild(listItem);
+    });
+    section.appendChild(list);
+    container.appendChild(section);
+  }
+
+  const api = Object.freeze({
+    appendTextElement,
+    addSection,
+    addList,
+    renderReport,
+    renderNextSessionRules,
+  });
 
   root.JJG_REPORT_VIEW = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

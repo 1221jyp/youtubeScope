@@ -419,7 +419,11 @@
       log.map((entry) => entry.title)
     );
     const saved = { sessionId: session.sessionId, generatedAt: Date.now(), report };
-    const stored = await root.JJG_STORAGE.set({ [STORAGE_KEYS.SESSION_REPORT]: saved });
+    const stored = await root.JJG_STORAGE.set({
+      [STORAGE_KEYS.SESSION_REPORT]: saved,
+      // 새 리포트와 함께 미생성 상태로 초기화한다. 한 번의 저장으로 둘의 상태를 맞춘다.
+      [STORAGE_KEYS.NEXT_SESSION_RULES]: null,
+    });
     if (!stored) {
       return {
         ok: false,
