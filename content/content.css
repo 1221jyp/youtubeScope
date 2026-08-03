@@ -229,6 +229,38 @@
   line-height: 1.5;
 }
 
+.jjg-report-metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  font-size: 12.5px;
+}
+
+.jjg-report-metric-value {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.jjg-timeline-item {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.jjg-timeline-title,
+.jjg-timeline-meta,
+.jjg-timeline-arrow {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.jjg-timeline-title { font-weight: 600; }
+.jjg-timeline-meta { margin-top: 3px; color: #666; }
+.jjg-timeline-arrow { padding: 6px 4px; color: #777; }
+
 #jjg-purpose-input {
   width: 100%;
   box-sizing: border-box;

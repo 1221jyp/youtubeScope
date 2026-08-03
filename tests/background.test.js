@@ -353,14 +353,27 @@ async function run() {
   {
     const harness = createHarness(
       baseStorage([
-        { title: "해시테이블 강의", action: "watched", related: true },
-        { title: "개발자 브이로그", action: "left_anyway", related: false, reason: "학습과 무관" },
+        {
+          entryId: "entry-a", videoId: "a", title: "해시테이블 강의",
+          action: "watched", related: true, enteredAt: 1100, leftAt: 1400,
+          dwellMs: 300, timeMeasurement: "measured",
+          navigation: { source: "search" },
+        },
+        {
+          entryId: "entry-b", videoId: "b", title: "개발자 브이로그",
+          action: "left_anyway", related: false, reason: "학습과 무관",
+          enteredAt: 1400, leftAt: 1800, dwellMs: 400, timeMeasurement: "measured",
+          navigation: { source: "recommendation", fromEntryId: "entry-a" },
+        },
       ])
     );
     harness.storage.jjg_next_session_rules = [
       { rule: "이전 세션 규칙", evidence: "이전 세션 근거" },
     ];
-    harness.setFetch(async () => ({
+    let timeReportPrompt = "";
+    harness.setFetch(async (_url, options) => {
+      timeReportPrompt = JSON.parse(options.body).contents[0].parts[0].text;
+      return ({
       ok: true,
       status: 200,
       json: async () => ({
@@ -381,6 +394,9 @@ async function run() {
                       patterns: ["존재하지 않는 영상으로 이동했습니다."],
                       recommendations: ["존재하지 않는 영상을 피하세요."],
                       encouragement: "다음에는 존재하지 않는 영상을 피할 수 있습니다.",
+                      timeStats: { trackedDwellMs: 999999 },
+                      sourceStats: [{ source: "external", count: 99, dwellMs: 999999 }],
+                      timeline: [{ title: "존재하지 않는 영상", navigationSource: "external" }],
                     },
                   },
                 },
@@ -390,7 +406,8 @@ async function run() {
         ],
       }),
       text: async () => "",
-    }));
+      });
+    });
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
     assert.equal(response.ok, true);
     assert.doesNotMatch(JSON.stringify(response.report), /존재하지 않는 영상/);
@@ -402,6 +419,23 @@ async function run() {
     ]);
     assert.equal(response.report.stats.actualDeviations, 1);
     assert.equal(response.report.stats.leftAnyway, 1);
+    assert.equal(response.report.timeStats.trackedDwellMs, 700);
+    assert.equal(response.report.timeStats.focusedDwellMs, 300);
+    assert.equal(response.report.timeStats.deviationDwellMs, 400);
+    assert.equal(response.report.timeStats.focusedRatio, 300 / 700);
+    assert.equal(response.report.timeStats.deviationRatio, 400 / 700);
+    assert.deepEqual(Array.from(response.report.sourceStats, (item) => item.source), [
+      "search",
+      "recommendation",
+    ]);
+    assert.deepEqual(Array.from(response.report.timeline, (item) => item.title), [
+      "해시테이블 강의",
+      "개발자 브이로그",
+    ]);
+    assert.equal(response.report.timeline[1].fromEntryId, "entry-a");
+    assert.match(timeReportPrompt, /영상 페이지 체류시간/);
+    assert.match(timeReportPrompt, /코드 계산 이동 원인 통계/);
+    assert.match(timeReportPrompt, /unknown 이동 원인을 추측하지 않고/);
     assert.equal(harness.storage.jjg_session_report.sessionId, 100);
     assert.equal(harness.storage.jjg_next_session_rules, null);
     const countAfterFirst = harness.fetchCount;
@@ -413,6 +447,58 @@ async function run() {
     const nextSession = await harness.send({ type: "GENERATE_SESSION_REPORT" });
     assert.equal(nextSession.cached, false);
     assert.equal(harness.storage.jjg_session_report.sessionId, 101);
+  }
+
+  // 시간·출처 통계는 action 의미에 따라 코드에서만 계산한다.
+  {
+    const harness = createHarness(baseStorage([]));
+    const reportApi = harness.context.JJG_REPORT;
+    const logs = [
+      { title: "관련", action: "watched", dwellMs: 100, navigation: { source: "search" } },
+      { title: "승인", action: "approved_reason", dwellMs: 200, navigation: { source: "search" } },
+      { title: "이탈", action: "left_anyway", dwellMs: 300, navigation: { source: "recommendation" } },
+      { title: "복귀", action: "went_back", dwellMs: 400, navigation: { source: "recommendation" } },
+      { title: "차단", action: "blocked", dwellMs: 500, navigation: { source: "unknown" } },
+      { title: "건너뜀", action: "skipped", dwellMs: null, navigation: { source: "unknown" } },
+    ];
+    const timeStats = reportApi.buildTimeStats({ startedAt: 0, endedAt: 2000 }, logs);
+    assert.equal(timeStats.sessionDurationMs, 2000);
+    assert.equal(timeStats.trackedDwellMs, 1500);
+    assert.equal(timeStats.focusedDwellMs, 300);
+    assert.equal(timeStats.approvedDwellMs, 200);
+    assert.equal(timeStats.deviationDwellMs, 300);
+    assert.equal(timeStats.untrackedMs, 500);
+    const sourceStats = reportApi.buildSourceStats(logs);
+    assert.equal(sourceStats.find((item) => item.source === "search").count, 2);
+    assert.equal(sourceStats.find((item) => item.source === "recommendation").actualDeviations, 1);
+    assert.equal(sourceStats.find((item) => item.source === "unknown").actualDeviations, 0);
+    const quality = reportApi.buildDataQuality([
+      { timeMeasurement: "unknown", dwellMs: null, navigation: { source: "unknown" } },
+    ], {
+      totalLogs: 1,
+      invalidLogs: 0,
+      timeStats: { sessionDurationMs: 100, trackedDwellMs: 200 },
+    });
+    assert.equal(quality.unknownTimeEntries, 1);
+    assert.equal(quality.unknownNavigationEntries, 1);
+    assert.match(quality.warnings.join(" "), /전체 세션 시간보다 깁니다/);
+    const emptyTime = reportApi.buildTimeStats({ startedAt: 0, endedAt: 1000 }, [
+      { action: "watched", dwellMs: null },
+    ]);
+    assert.equal(emptyTime.focusedRatio, null);
+    assert.equal(emptyTime.deviationRatio, null);
+    assert.equal(reportApi.buildEvidenceReport("공부", []).timeline.length, 0);
+    assert.equal(reportApi.buildEvidenceReport("공부", [{
+      ts: 1, title: "한 개", action: "watched", navigation: { source: "unknown" },
+      timeMeasurement: "unknown", dwellMs: null,
+    }]).timeline.length, 1);
+    const legacyCached = reportApi.normalizeReport({
+      summary: "기존 캐시",
+      firstDeviation: { title: "", reason: "" },
+      diversionPath: [], patterns: [], recommendations: [], encouragement: "",
+    });
+    assert.equal(legacyCached.timeStats, null);
+    assert.deepEqual(Array.from(legacyCached.timeline), []);
   }
 
   {

@@ -44,6 +44,25 @@
     NOT_ACHIEVED: "not_achieved",
   });
 
+  const NAVIGATION_SOURCES = Object.freeze({
+    SEARCH: "search",
+    RECOMMENDATION: "recommendation",
+    HOME: "home",
+    SUBSCRIPTIONS: "subscriptions",
+    PLAYLIST: "playlist",
+    SHORTS: "shorts",
+    HISTORY: "history",
+    EXTERNAL: "external",
+    DIRECT: "direct",
+    UNKNOWN: "unknown",
+  });
+
+  const TIME_MEASUREMENTS = Object.freeze({
+    MEASURED: "measured",
+    ESTIMATED: "estimated",
+    UNKNOWN: "unknown",
+  });
+
   const MAX_TOPICS = 20;
   const MAX_RULES = 10;
 
@@ -204,6 +223,49 @@
     if (source.sessionId != null && sessionId == null) errors.push("sessionId가 유효하지 않습니다.");
     if (ts == null) errors.push("ts가 유효한 숫자가 아닙니다.");
 
+    const normalizeOptionalTime = (field) => {
+      if (source[field] == null) return null;
+      const value = finiteNumber(source[field]);
+      if (value == null || value < 0) {
+        errors.push(`${field}가 유효한 0 이상의 숫자 또는 null이 아닙니다.`);
+        return null;
+      }
+      return value;
+    };
+    const enteredAt = normalizeOptionalTime("enteredAt");
+    let leftAt = normalizeOptionalTime("leftAt");
+    let dwellMs = normalizeOptionalTime("dwellMs");
+    if (enteredAt != null && leftAt != null) {
+      if (leftAt < enteredAt) {
+        errors.push("leftAt은 enteredAt보다 빠를 수 없습니다.");
+        leftAt = null;
+        dwellMs = null;
+      } else {
+        const calculated = leftAt - enteredAt;
+        if (dwellMs != null && dwellMs !== calculated) {
+          errors.push("dwellMs는 leftAt - enteredAt과 일치해야 합니다.");
+          dwellMs = calculated;
+        }
+      }
+    }
+
+    let timeMeasurement = source.timeMeasurement ?? TIME_MEASUREMENTS.UNKNOWN;
+    if (!enumValues(TIME_MEASUREMENTS).includes(timeMeasurement)) {
+      errors.push("timeMeasurement 값이 유효하지 않습니다.");
+      timeMeasurement = TIME_MEASUREMENTS.UNKNOWN;
+    }
+
+    const rawNavigation = source.navigation;
+    const navigationSource = rawNavigation?.source ?? NAVIGATION_SOURCES.UNKNOWN;
+    let safeNavigationSource = navigationSource;
+    if (!enumValues(NAVIGATION_SOURCES).includes(navigationSource)) {
+      errors.push("navigation.source 값이 유효하지 않습니다.");
+      safeNavigationSource = NAVIGATION_SOURCES.UNKNOWN;
+    }
+    if (rawNavigation != null && (!rawNavigation || typeof rawNavigation !== "object" || Array.isArray(rawNavigation))) {
+      errors.push("navigation은 객체여야 합니다.");
+    }
+
     let initialVerdict = null;
     if (source.initialVerdict != null) {
       const verdictResult = normalizeVideoVerdict(source.initialVerdict);
@@ -225,10 +287,21 @@
 
     return result(
       {
+        entryId: cleanString(source.entryId),
         sessionId,
         videoId: cleanString(source.videoId),
         title: cleanString(source.title),
         ts,
+        enteredAt,
+        leftAt,
+        dwellMs,
+        timeMeasurement,
+        navigation: {
+          source: safeNavigationSource,
+          fromEntryId: cleanString(rawNavigation?.fromEntryId),
+          fromVideoId: cleanString(rawNavigation?.fromVideoId),
+          fromTitle: cleanString(rawNavigation?.fromTitle),
+        },
         initialVerdict,
         userReason: cleanString(source.userReason),
         reasonVerdict,
@@ -277,6 +350,8 @@
     VIDEO_DECISIONS,
     LOG_ACTIONS,
     COMPLETION_STATUS,
+    NAVIGATION_SOURCES,
+    TIME_MEASUREMENTS,
     createSession,
     normalizeSession,
     normalizeGoalProfile,

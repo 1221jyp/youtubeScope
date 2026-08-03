@@ -6,6 +6,8 @@ const {
   VIDEO_DECISIONS,
   LOG_ACTIONS,
   COMPLETION_STATUS,
+  NAVIGATION_SOURCES,
+  TIME_MEASUREMENTS,
   createSession,
   normalizeSession,
   normalizeGoalProfile,
@@ -100,6 +102,28 @@ function run() {
   assert.equal(newLog.value.initialVerdict.score, 55);
   assert.equal(newLog.value.reasonVerdict.accepted, true);
 
+  const timedLog = normalizeLogEntry({
+    entryId: "1720000000000:1720000010000:abc123:1",
+    sessionId: 1720000000000,
+    videoId: "abc123",
+    title: "해시테이블 강의",
+    ts: 1720000010000,
+    enteredAt: 1720000010000,
+    leftAt: 1720000610000,
+    dwellMs: 600000,
+    timeMeasurement: TIME_MEASUREMENTS.MEASURED,
+    navigation: {
+      source: NAVIGATION_SOURCES.RECOMMENDATION,
+      fromEntryId: "previous-entry",
+      fromVideoId: "previous-video",
+      fromTitle: "기본 개념",
+    },
+    action: LOG_ACTIONS.WATCHED,
+  });
+  assert.equal(timedLog.valid, true);
+  assert.equal(timedLog.value.dwellMs, 600000);
+  assert.equal(timedLog.value.navigation.source, NAVIGATION_SOURCES.RECOMMENDATION);
+
   const legacyLog = normalizeLogEntry({
     videoId: "old-video",
     title: "기존 영상",
@@ -116,6 +140,35 @@ function run() {
   });
   assert.equal(legacyLog.value.userReason, "");
   assert.equal(legacyLog.value.reasonVerdict, null);
+  assert.equal(legacyLog.value.entryId, "");
+  assert.equal(legacyLog.value.enteredAt, null);
+  assert.equal(legacyLog.value.leftAt, null);
+  assert.equal(legacyLog.value.dwellMs, null);
+  assert.equal(legacyLog.value.timeMeasurement, TIME_MEASUREMENTS.UNKNOWN);
+  assert.equal(legacyLog.value.navigation.source, NAVIGATION_SOURCES.UNKNOWN);
+
+  const badSource = normalizeLogEntry({
+    videoId: "x", title: "x", ts: 1, action: LOG_ACTIONS.WATCHED,
+    navigation: { source: "guessed" },
+  });
+  assert.equal(badSource.valid, false);
+  assert.equal(badSource.value.navigation.source, NAVIGATION_SOURCES.UNKNOWN);
+
+  for (const dwellMs of [-1, NaN, Infinity]) {
+    const invalidTime = normalizeLogEntry({
+      videoId: "x", title: "x", ts: 1, action: LOG_ACTIONS.WATCHED,
+      enteredAt: 1, leftAt: 2, dwellMs, timeMeasurement: TIME_MEASUREMENTS.MEASURED,
+    });
+    assert.equal(invalidTime.valid, false);
+    assert.equal(invalidTime.value.dwellMs, null);
+  }
+
+  const backwardsTime = normalizeLogEntry({
+    videoId: "x", title: "x", ts: 1, action: LOG_ACTIONS.WATCHED,
+    enteredAt: 20, leftAt: 10, dwellMs: 0, timeMeasurement: TIME_MEASUREMENTS.MEASURED,
+  });
+  assert.equal(backwardsTime.valid, false);
+  assert.equal(backwardsTime.value.leftAt, null);
 
   const badAction = normalizeLogEntry({
     videoId: "x",
@@ -153,7 +206,7 @@ function run() {
   normalizeGoalProfile(immutableInput);
   assert.deepEqual(immutableInput, snapshot);
 
-  console.log("공통 스키마 시나리오 15개 통과");
+  console.log("공통 스키마 시나리오 22개 통과");
 }
 
 run();

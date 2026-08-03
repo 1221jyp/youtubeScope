@@ -8,6 +8,8 @@
     STORAGE_KEYS,
     SESSION_STATUS,
     LOG_ACTIONS,
+    NAVIGATION_SOURCES,
+    TIME_MEASUREMENTS,
     normalizeSession,
     normalizeGoalProfile,
     normalizeCompletionResult,
@@ -23,6 +25,124 @@
 
   // 같은 세션에 대한 동시 요청을 하나로 합친다 (popup을 여러 번 열어도 API는 한 번만 호출).
   const inFlight = new Map();
+
+  function nonNegativeNumber(value, fallback = null) {
+    if (value == null || value === "" || typeof value === "boolean") return fallback;
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : fallback;
+  }
+
+  function buildTimeline(log) {
+    return log
+      .map((entry, originalIndex) => ({ entry, originalIndex }))
+      .sort((a, b) => {
+        const aTime = a.entry.enteredAt ?? a.entry.ts;
+        const bTime = b.entry.enteredAt ?? b.entry.ts;
+        return aTime - bTime || a.originalIndex - b.originalIndex;
+      })
+      .map(({ entry }, index) => ({
+        entryId: textOrEmpty(entry.entryId),
+        order: index + 1,
+        videoId: textOrEmpty(entry.videoId),
+        title: textOrEmpty(entry.title) || "(제목 없음)",
+        enteredAt: nonNegativeNumber(entry.enteredAt),
+        leftAt: nonNegativeNumber(entry.leftAt),
+        dwellMs: nonNegativeNumber(entry.dwellMs),
+        timeMeasurement: Object.values(TIME_MEASUREMENTS).includes(entry.timeMeasurement)
+          ? entry.timeMeasurement
+          : TIME_MEASUREMENTS.UNKNOWN,
+        navigationSource: Object.values(NAVIGATION_SOURCES).includes(entry.navigation?.source)
+          ? entry.navigation.source
+          : NAVIGATION_SOURCES.UNKNOWN,
+        fromEntryId: textOrEmpty(entry.navigation?.fromEntryId),
+        decision: entry.initialVerdict?.decision ?? null,
+        score: entry.initialVerdict?.score ?? null,
+        action: entry.action,
+        verdictReason: textOrEmpty(entry.initialVerdict?.reason),
+        userReason: textOrEmpty(entry.userReason),
+        reasonExplanation: textOrEmpty(entry.reasonVerdict?.explanation),
+        evidenceId: `log:${textOrEmpty(entry.entryId) || index + 1}`,
+      }));
+  }
+
+  function buildTimeStats(session, log) {
+    const startedAt = nonNegativeNumber(session?.startedAt);
+    const endedAt = nonNegativeNumber(session?.endedAt);
+    const sessionDurationMs = startedAt != null && endedAt != null && endedAt >= startedAt
+      ? endedAt - startedAt
+      : null;
+    const dwellFor = (entry) => nonNegativeNumber(entry.dwellMs, 0);
+    const trackedDwellMs = log.reduce((sum, entry) => sum + dwellFor(entry), 0);
+    const focusedDwellMs = log
+      .filter((entry) => [LOG_ACTIONS.WATCHED, LOG_ACTIONS.APPROVED_REASON].includes(entry.action))
+      .reduce((sum, entry) => sum + dwellFor(entry), 0);
+    const approvedDwellMs = log
+      .filter((entry) => entry.action === LOG_ACTIONS.APPROVED_REASON)
+      .reduce((sum, entry) => sum + dwellFor(entry), 0);
+    const deviationDwellMs = log
+      .filter((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY)
+      .reduce((sum, entry) => sum + dwellFor(entry), 0);
+    return {
+      sessionDurationMs,
+      trackedDwellMs,
+      untrackedMs: sessionDurationMs == null ? null : Math.max(0, sessionDurationMs - trackedDwellMs),
+      focusedDwellMs,
+      approvedDwellMs,
+      deviationDwellMs,
+      focusedRatio: trackedDwellMs > 0 ? focusedDwellMs / trackedDwellMs : null,
+      deviationRatio: trackedDwellMs > 0 ? deviationDwellMs / trackedDwellMs : null,
+    };
+  }
+
+  function buildSourceStats(log) {
+    const bySource = new Map();
+    for (const entry of log) {
+      const source = Object.values(NAVIGATION_SOURCES).includes(entry.navigation?.source)
+        ? entry.navigation.source
+        : NAVIGATION_SOURCES.UNKNOWN;
+      if (!bySource.has(source)) {
+        bySource.set(source, { source, count: 0, dwellMs: 0, actualDeviations: 0 });
+      }
+      const stat = bySource.get(source);
+      stat.count += 1;
+      stat.dwellMs += nonNegativeNumber(entry.dwellMs, 0);
+      if (entry.action === LOG_ACTIONS.LEFT_ANYWAY) stat.actualDeviations += 1;
+    }
+    return [...bySource.values()];
+  }
+
+  function buildDataQuality(log, { totalLogs = log.length, invalidLogs = 0, timeStats } = {}) {
+    const measuredTimeEntries = log.filter(
+      (entry) => entry.timeMeasurement === TIME_MEASUREMENTS.MEASURED && entry.dwellMs != null
+    ).length;
+    const estimatedTimeEntries = log.filter(
+      (entry) => entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED && entry.dwellMs != null
+    ).length;
+    const unknownTimeEntries = log.length - measuredTimeEntries - estimatedTimeEntries;
+    const unknownNavigationEntries = log.filter(
+      (entry) => entry.navigation?.source === NAVIGATION_SOURCES.UNKNOWN
+    ).length;
+    const warnings = [];
+    if (unknownTimeEntries) warnings.push("일부 영상의 체류시간을 측정하지 못했습니다.");
+    if (unknownNavigationEntries) warnings.push("일부 영상의 이동 원인을 확인하지 못했습니다.");
+    if (
+      timeStats?.sessionDurationMs != null &&
+      timeStats.trackedDwellMs > timeStats.sessionDurationMs
+    ) {
+      warnings.push("측정된 체류시간 합계가 전체 세션 시간보다 깁니다.");
+    }
+    if (invalidLogs) warnings.push("일부 로그의 형식이 올바르지 않아 분석에서 제외했습니다.");
+    return {
+      totalLogs,
+      validLogs: log.length,
+      invalidLogs,
+      measuredTimeEntries,
+      estimatedTimeEntries,
+      unknownTimeEntries,
+      unknownNavigationEntries,
+      warnings,
+    };
+  }
 
   const REPORT_TOOL = {
     name: "session_report",
@@ -63,6 +183,13 @@
     const stats = value.stats && typeof value.stats === "object" ? value.stats : {};
     const count = (field) =>
       Number.isFinite(Number(stats[field])) ? Math.max(0, Number(stats[field])) : 0;
+    const timeline = Array.isArray(value.timeline) ? value.timeline : [];
+    const sourceStats = Array.isArray(value.sourceStats) ? value.sourceStats : [];
+    const hasTimeStats = value.timeStats && typeof value.timeStats === "object";
+    const timeStats = hasTimeStats ? value.timeStats : {};
+    const hasDataQuality = value.dataQuality && typeof value.dataQuality === "object";
+    const dataQuality = hasDataQuality ? value.dataQuality : {};
+    const nullableNumber = (field) => nonNegativeNumber(timeStats[field]);
     return {
       summary: textOrEmpty(value.summary),
       firstDeviation:
@@ -85,10 +212,63 @@
         skipped: count("skipped"),
         actualDeviations: count("actualDeviations"),
       },
+      timeStats: hasTimeStats ? {
+        sessionDurationMs: nullableNumber("sessionDurationMs"),
+        trackedDwellMs: nullableNumber("trackedDwellMs") ?? 0,
+        untrackedMs: nullableNumber("untrackedMs"),
+        focusedDwellMs: nullableNumber("focusedDwellMs") ?? 0,
+        approvedDwellMs: nullableNumber("approvedDwellMs") ?? 0,
+        deviationDwellMs: nullableNumber("deviationDwellMs") ?? 0,
+        focusedRatio: nullableNumber("focusedRatio"),
+        deviationRatio: nullableNumber("deviationRatio"),
+      } : null,
+      sourceStats: sourceStats.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const source = Object.values(NAVIGATION_SOURCES).includes(item.source)
+          ? item.source
+          : NAVIGATION_SOURCES.UNKNOWN;
+        return [{
+          source,
+          count: nonNegativeNumber(item.count, 0),
+          dwellMs: nonNegativeNumber(item.dwellMs, 0),
+          actualDeviations: nonNegativeNumber(item.actualDeviations, 0),
+        }];
+      }),
+      timeline: timeline.map((item, index) => ({
+        entryId: textOrEmpty(item?.entryId),
+        order: nonNegativeNumber(item?.order, index + 1),
+        videoId: textOrEmpty(item?.videoId),
+        title: textOrEmpty(item?.title) || "(제목 없음)",
+        enteredAt: nonNegativeNumber(item?.enteredAt),
+        leftAt: nonNegativeNumber(item?.leftAt),
+        dwellMs: nonNegativeNumber(item?.dwellMs),
+        timeMeasurement: Object.values(TIME_MEASUREMENTS).includes(item?.timeMeasurement)
+          ? item.timeMeasurement : TIME_MEASUREMENTS.UNKNOWN,
+        navigationSource: Object.values(NAVIGATION_SOURCES).includes(item?.navigationSource)
+          ? item.navigationSource : NAVIGATION_SOURCES.UNKNOWN,
+        fromEntryId: textOrEmpty(item?.fromEntryId),
+        decision: item?.decision ?? null,
+        score: item?.score ?? null,
+        action: textOrEmpty(item?.action),
+        verdictReason: textOrEmpty(item?.verdictReason),
+        userReason: textOrEmpty(item?.userReason),
+        reasonExplanation: textOrEmpty(item?.reasonExplanation),
+        evidenceId: textOrEmpty(item?.evidenceId),
+      })),
+      dataQuality: hasDataQuality ? {
+        totalLogs: nonNegativeNumber(dataQuality.totalLogs, 0),
+        validLogs: nonNegativeNumber(dataQuality.validLogs, 0),
+        invalidLogs: nonNegativeNumber(dataQuality.invalidLogs, 0),
+        measuredTimeEntries: nonNegativeNumber(dataQuality.measuredTimeEntries, 0),
+        estimatedTimeEntries: nonNegativeNumber(dataQuality.estimatedTimeEntries, 0),
+        unknownTimeEntries: nonNegativeNumber(dataQuality.unknownTimeEntries, 0),
+        unknownNavigationEntries: nonNegativeNumber(dataQuality.unknownNavigationEntries, 0),
+        warnings: stringArray(dataQuality.warnings),
+      } : null,
     };
   }
 
-  function buildEvidenceReport(purpose, log) {
+  function buildEvidenceReport(purpose, log, session = null, qualityInput = {}) {
     const usable = log.filter(
       (entry) => ANALYZABLE_ACTIONS.includes(entry?.action) || entry?.action === LOG_ACTIONS.SKIPPED
     );
@@ -152,6 +332,7 @@
             .map((entry) => textOrEmpty(entry.title) || "(제목 없음)")
         : [];
 
+    const timeStats = buildTimeStats(session, usable);
     return {
       summary: `이번 세션은 ${facts.join(", ")}으로 기록되었습니다.`,
       firstDeviation: first
@@ -177,6 +358,10 @@
         skipped: skippedCount,
         actualDeviations: deviationCount,
       },
+      timeStats,
+      sourceStats: buildSourceStats(usable),
+      timeline: buildTimeline(usable),
+      dataQuality: buildDataQuality(usable, { ...qualityInput, timeStats }),
     };
   }
 
@@ -225,6 +410,10 @@
       ]),
       encouragement: textOrEmpty(safeAiReport.encouragement) || evidence.encouragement,
       stats: evidence.stats,
+      timeStats: evidence.timeStats,
+      sourceStats: evidence.sourceStats,
+      timeline: evidence.timeline,
+      dataQuality: evidence.dataQuality,
     };
   }
 
@@ -238,6 +427,10 @@
       goalProfile,
       completionResult,
       sessionLog,
+      timeStats,
+      sourceStats,
+      timeline,
+      dataQuality,
     } = reportInput;
     const safeLog = sessionLog.slice(-40).map((entry, index) => ({
       order: index + 1,
@@ -249,6 +442,9 @@
       userReason: textOrEmpty(entry?.userReason).slice(0, 100),
       reasonAccepted: entry.reasonVerdict?.accepted ?? null,
       reasonExplanation: textOrEmpty(entry.reasonVerdict?.explanation).slice(0, 160),
+      dwellMs: entry.dwellMs,
+      timeMeasurement: entry.timeMeasurement,
+      navigationSource: entry.navigation?.source,
     }));
 
     const args = await callFunction({
@@ -271,6 +467,10 @@
                   completionResult,
                 })}\n` +
                 `시간순 로그(JSON):\n${JSON.stringify(safeLog)}\n\n` +
+                `코드 계산 체류 통계(JSON):\n${JSON.stringify(timeStats)}\n` +
+                `코드 계산 이동 원인 통계(JSON):\n${JSON.stringify(sourceStats)}\n` +
+                `코드 확정 타임라인(JSON):\n${JSON.stringify(timeline)}\n\n` +
+                `데이터 품질 경고(JSON):\n${JSON.stringify(dataQuality)}\n\n` +
                 `로그 해석: watched는 목적에 맞게 시청, approved_reason은 경고 후 사용자가 시청 이유를 ` +
                 `설명해 AI 승인을 받고 시청한 사례, left_anyway는 AI 경고 후에도 시청한 이탈, ` +
                 `went_back은 AI 개입으로 이탈을 방지한 사례, blocked는 목적과 무관하다고 판정되어 ` +
@@ -290,6 +490,11 @@
                 `11. 일반적인 조언보다 실제 로그의 선택과 전환을 근거로 자연스러운 한국어로 설명한다.\n` +
                 `12. recommendations는 다음 세션에 실행할 수 있는 구체적인 행동 2~3개로 작성한다.\n` +
                 `13. 서술에서 영상 제목을 언급한다면 diversionPath에도 실제 로그의 제목과 정확히 같은 문자열로 반드시 포함한다.\n` +
+                `14. dwellMs는 실제 재생시간이 아니라 영상 페이지 체류시간이다. 시청시간이라고 단정하지 않는다.\n` +
+                `15. unknown 이동 원인을 추측하지 않고, 한 번의 이동만으로 반복 습관이라 단정하지 않는다.\n` +
+                `16. 코드가 계산한 통계·시간·timeline을 그대로 사용하며 없는 제목이나 이동 원인을 만들지 않는다.\n` +
+                `17. 측정되지 않은 시간을 0분이라고 표현하지 않는다.\n` +
+                `18. 세션 시간과 로그 체류시간이 다르면 데이터 제한을 언급한다.\n` +
                 `반드시 session_report 도구를 호출해서 답해.`,
             },
           ],
@@ -370,11 +575,18 @@
     const rawLog = Array.isArray(data[STORAGE_KEYS.SESSION_LOG])
       ? data[STORAGE_KEYS.SESSION_LOG]
       : [];
+    let invalidLogs = 0;
     const log = rawLog.flatMap((entry) => {
       const normalized = normalizeLogEntry(entry);
-      if (!normalized.valid) {
+      // 보조 시간·이동 필드 오류는 안전한 값으로 정규화해 기존 핵심 로그 분석을 유지한다.
+      const hasCoreFields = normalized.value.ts != null && normalized.value.action != null;
+      if (!normalized.valid && !hasCoreFields) {
+        invalidLogs += 1;
         console.warn("[조준경] 리포트에서 유효하지 않은 로그 제외:", normalized.errors);
         return [];
+      }
+      if (!normalized.valid) {
+        console.warn("[조준경] 리포트에서 일부 보조 로그 필드 정규화:", normalized.errors);
       }
       if (normalized.value.sessionId != null && normalized.value.sessionId !== session.sessionId) {
         return [];
@@ -402,6 +614,10 @@
       return { ok: false, code: "API_KEY_NOT_SET", error: "Gemini API 키가 설정되지 않았습니다." };
     }
 
+    const evidenceReport = buildEvidenceReport(purpose, log, session, {
+      totalLogs: log.length + invalidLogs,
+      invalidLogs,
+    });
     const reportInput = {
       sessionId: session.sessionId,
       sessionStatus: session.status,
@@ -411,11 +627,15 @@
       goalProfile,
       completionResult: completionCheck.value,
       sessionLog: log,
+      timeStats: evidenceReport.timeStats,
+      sourceStats: evidenceReport.sourceStats,
+      timeline: evidenceReport.timeline,
+      dataQuality: evidenceReport.dataQuality,
     };
     const aiReport = await callGeminiForReport(apiKey, model, reportInput);
     const report = mergeReportWithEvidence(
       aiReport,
-      buildEvidenceReport(purpose, log),
+      evidenceReport,
       log.map((entry) => entry.title)
     );
     const saved = { sessionId: session.sessionId, generatedAt: Date.now(), report };
@@ -465,6 +685,10 @@
     ANALYZABLE_ACTIONS,
     normalizeReport,
     buildEvidenceReport,
+    buildTimeline,
+    buildTimeStats,
+    buildSourceStats,
+    buildDataQuality,
     sanitizeAiReportByTitles,
     mergeReportWithEvidence,
     generateSessionReport,

@@ -13,7 +13,7 @@
     return data[STORAGE_KEYS.SESSION_LOG] || [];
   }
 
-  // 같은 영상이 이미 있으면 새로 만들지 않고 기존 인덱스를 반환한다.
+  // 새 로그는 entryId로 방문을 구분한다. entryId가 없는 기존 호출만 videoId 중복 방지를 유지한다.
   async function appendLog(entry) {
     const log = await readLog();
 
@@ -23,9 +23,9 @@
       return -1;
     }
 
-    const existingIndex = log.findIndex(
-      (item) => item.videoId === normalized.value.videoId
-    );
+    const existingIndex = normalized.value.entryId
+      ? log.findIndex((item) => item.entryId === normalized.value.entryId)
+      : log.findIndex((item) => !item.entryId && item.videoId === normalized.value.videoId);
 
     if (existingIndex !== -1) {
       log[existingIndex] = {
@@ -93,9 +93,25 @@
     return true;
   }
 
+  async function updateLogEntryById(entryId, updates) {
+    if (!entryId) return false;
+    const log = await readLog();
+    const index = log.findIndex((entry) => entry.entryId === entryId);
+    if (index < 0) return false;
+    const normalized = normalizeLogEntry({ ...log[index], ...updates });
+    if (!normalized.valid) {
+      console.warn("[조준경] 유효하지 않은 entryId 로그 갱신 거부:", normalized.errors);
+      return false;
+    }
+    log[index] = normalized.value;
+    await root.JJG_STORAGE.set({ [STORAGE_KEYS.SESSION_LOG]: log });
+    return true;
+  }
+
   root.JJG_LOG = Object.freeze({
     readLog,
     appendLog,
     updateLogEntry,
+    updateLogEntryById,
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

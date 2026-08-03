@@ -185,6 +185,61 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 
 저장소의 기존 로그를 자동 수정하거나 덮어쓰지는 않는다. 읽는 기능이 필요한 시점에 정규화한다.
 
+### 영상 페이지 체류시간과 이동 원인 (1차 구현)
+
+새 로그는 방문 한 건을 구분하는 `entryId`와 다음 선택 필드를 가질 수 있다.
+
+```js
+{
+  entryId: "1720000000000:1720000010000:abc123:방문고유값",
+  enteredAt: 1720000010000,
+  leftAt: 1720000610000,
+  dwellMs: 600000,
+  timeMeasurement: "measured",
+  navigation: {
+    source: "recommendation",
+    fromEntryId: "이전-entryId",
+    fromVideoId: "이전-videoId",
+    fromTitle: "이전 영상의 실제 제목"
+  }
+}
+```
+
+`dwellMs`는 영상의 실제 재생시간이나 시청시간이 아니라 `/watch` 영상 페이지에 들어온 시각부터 떠난 시각까지의 체류시간이다. `leftAt - enteredAt`으로 계산하며 측정할 수 없는 값은 `0`이 아니라 `null`로 둔다. 이번 1차 구현은 `watchedMs`, 재생·일시정지, 배속, 광고, 탭 활성 상태를 측정하지 않는다.
+
+시간 측정 상태는 `measured`, `estimated`, `unknown`이다. 새 필드가 없는 기존 로그는 `entryId: ""`, 시간 세 필드 `null`, `timeMeasurement: "unknown"`으로 정규화한다.
+
+이동 원인은 다음 값을 사용한다.
+
+- `search`: 검색 결과
+- `recommendation`: 영상 페이지 추천 영역
+- `home`: 홈 피드
+- `subscriptions`: 구독 피드
+- `playlist`: 재생목록 문맥
+- `shorts`: Shorts 문맥
+- `history`: 시청 기록
+- `external`: 외부 사이트에서 최초 진입
+- `direct`: 주소 입력·북마크 등 직접 최초 진입
+- `unknown`: 근거가 부족해 판별하지 못함
+
+기존 로그처럼 `navigation`이 없으면 `source: "unknown"`과 빈 이전 영상 필드로 정규화한다. 잘못된 source는 오류를 기록하면서 안전한 값 `unknown`을 반환한다.
+
+### 리포트 체류시간·이동 통계
+
+`timeStats`는 코드가 정규화 로그에서 계산하며 Gemini가 덮어쓰지 않는다.
+
+- `sessionDurationMs`: `endedAt - startedAt`
+- `trackedDwellMs`: 유효한 모든 `dwellMs` 합계
+- `focusedDwellMs`: `watched`, `approved_reason` 체류시간 합계
+- `approvedDwellMs`: `approved_reason` 체류시간 합계
+- `deviationDwellMs`: `left_anyway` 체류시간 합계
+- `untrackedMs`: `max(0, sessionDurationMs - trackedDwellMs)`
+- `focusedRatio`, `deviationRatio`: 추적 시간이 0이면 `null`, 아니면 각각 추적 시간 대비 비율
+
+`sourceStats`는 실제로 존재하는 source별로 진입 수, 유효한 체류시간 합계, `left_anyway` 수만 집계한다. `approved_reason`, `went_back`, `blocked`, `skipped`는 실제 이탈 수에 포함하지 않는다. `unknown`도 데이터가 있으면 별도 집계한다.
+
+`timeline`의 제목, 시간, action, 이동 원인은 정규화된 실제 로그에서 코드로 만들며 AI 응답으로 교체하지 않는다. `dataQuality`에는 시간·이동 원인 미측정과 세션 시간보다 긴 중첩 체류시간 등의 제한을 기록한다.
+
 ## 목표 달성 결과
 
 상태는 `achieved`, `partial`, `not_achieved` 중 하나다.
