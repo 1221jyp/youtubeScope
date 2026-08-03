@@ -13,7 +13,7 @@
   const { showOverlay, removeOverlay, playVideo, showToast } = root.JJG_UI;
   const { getCurrentVideoId, waitForTitle, extractDescription } = root.JJG_NAV;
   const { sendMessageWithTimeout } = root.JJG_MESSAGING;
-  const { appendLog, updateLogEntry } = root.JJG_LOG;
+  const { appendLog, updateLogEntry, updateLogEntryById } = root.JJG_LOG;
 
   let lastProcessedVideoId = null;
 
@@ -85,7 +85,9 @@
         `⚠️ 판정 건너뜀 (${failOpenLabel(status)}: ${initialVerdict.reason || "알 수 없는 이유"}) — 그냥 통과됨`
       );
     }
+    const entryContext = await root.JJG_DWELL_TRACKER.getEntryContext(videoId, title);
     await appendLog({
+      ...(entryContext || {}),
       videoId,
       title,
       initialVerdict,
@@ -99,7 +101,9 @@
   async function blockOrAskVideo(videoId, title, purpose, initialVerdict) {
     // 사용자가 아무 버튼도 누르지 않고 다른 영상으로 넘어가도 기록에 남도록,
     // 차단/이유확인 시점에 먼저 기록하고 이후 선택에 따라 같은 항목을 갱신한다.
+    const entryContext = await root.JJG_DWELL_TRACKER.getEntryContext(videoId, title);
     const blockedIndex = await appendLog({
+      ...(entryContext || {}),
       videoId,
       title,
       initialVerdict,
@@ -110,6 +114,9 @@
       reasonVerdict: null,
       ts: Date.now(),
     });
+    const updateBlockedLog = (updates) => entryContext?.entryId
+      ? updateLogEntryById(entryContext.entryId, updates)
+      : updateLogEntry(blockedIndex, updates);
 
     // 판정을 기다리는 동안 다른 영상으로 넘어갔다면 그 영상을 재생시키면 안 된다.
     const stillOnVideo = () => getCurrentVideoId() === videoId;
@@ -119,7 +126,7 @@
         if (!stillOnVideo()) return;
         removeOverlay();
         playVideo();
-        await updateLogEntry(blockedIndex, {
+        await updateBlockedLog({
           action: LOG_ACTIONS.APPROVED_REASON,
           userReason,
           reasonVerdict: { accepted: true, explanation: explanation || "" },
@@ -127,7 +134,7 @@
       },
       onRejected: async (userReason, explanation) => {
         // action은 blocked로 두고, 사용자가 낸 이유와 AI의 판단 근거만 남긴다.
-        await updateLogEntry(blockedIndex, {
+        await updateBlockedLog({
           userReason,
           reasonVerdict: { accepted: false, explanation: explanation || "" },
         });
@@ -139,7 +146,7 @@
         removeOverlay();
         playVideo();
         showToast(`⚠️ 이유 판정 건너뜀 (${failOpenLabel(failStatus)}: ${failReason || "알 수 없는 이유"}) — 그냥 통과됨`);
-        await updateLogEntry(blockedIndex, {
+        await updateBlockedLog({
           action: LOG_ACTIONS.SKIPPED,
           userReason,
           reason: failReason,
@@ -147,7 +154,7 @@
         });
       },
       onGoBack: async () => {
-        await updateLogEntry(blockedIndex, { action: LOG_ACTIONS.WENT_BACK });
+        await updateBlockedLog({ action: LOG_ACTIONS.WENT_BACK });
         if (history.length > 1) {
           history.back();
         } else {

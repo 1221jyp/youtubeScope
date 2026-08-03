@@ -431,12 +431,50 @@ function testNextSessionRulesView() {
   context.JJG_REPORT_VIEW.renderNextSessionRules(container, []);
   assert.match(allText(container), /이번 세션에서는 제안할 구체적인 규칙이 없습니다\./);
 
+  context.JJG_REPORT_VIEW.renderReport(container, {
+    summary: "요약",
+    timeline: [
+      {
+        title: '<img src=x onerror="globalThis.attacked=true">',
+        navigationSource: "search",
+        dwellMs: 240000,
+        timeMeasurement: "estimated",
+        action: "watched",
+      },
+      {
+        title: "측정되지 않은 영상",
+        navigationSource: "unknown",
+        dwellMs: null,
+        timeMeasurement: "unknown",
+        action: "blocked",
+      },
+    ],
+    timeStats: {
+      sessionDurationMs: 300000,
+      trackedDwellMs: 240000,
+      focusedDwellMs: 240000,
+      deviationDwellMs: 0,
+      untrackedMs: 60000,
+    },
+    sourceStats: [{ source: "search", count: 1, actualDeviations: 0 }],
+    dataQuality: { warnings: ["일부 영상의 체류시간을 측정하지 못했습니다."] },
+  });
+  assert.match(allText(container), /약 4분/);
+  assert.match(allText(container), /체류시간 측정 불가/);
+  assert.match(allText(container), /이동 원인 불명/);
+  assert.match(allText(container), /<img src=x/);
+  assert.equal(allTags(container).includes("IMG"), false);
+
   const viewSource = fs.readFileSync("shared/report-view.js", "utf8");
   const modalSource = fs.readFileSync("content/report-modal.js", "utf8");
   const popupSource = fs.readFileSync("popup/popup.js", "utf8");
   assert.doesNotMatch(viewSource, /\.innerHTML\s*=/);
   assert.match(modalSource, /renderNextSessionRules/);
   assert.match(popupSource, /renderNextSessionRules/);
+  assert.match(modalSource, /renderReport\(body, response\.report\)/);
+  assert.match(popupSource, /JJG_REPORT_VIEW\.renderReport/);
+  assert.doesNotMatch(modalSource, /renderTimeline|renderTimeSummary|renderSourceStats/);
+  assert.doesNotMatch(popupSource, /renderTimeline|renderTimeSummary|renderSourceStats/);
   assert.match(
     popupSource,
     /if \(Array\.isArray\(storedRules\)\) \{\s*renderRules\(storedRules\);\s*\} else if \(storedRules == null\) \{\s*requestRules\(\);/
@@ -447,6 +485,114 @@ function testNextSessionRulesView() {
       modalSource.lastIndexOf("loadNextSessionRules(backdrop)"),
     "기존 리포트를 먼저 표시한 뒤 규칙을 별도로 생성해야 한다"
   );
+}
+
+async function testDwellTrackerAndNavigation() {
+  const context = vm.createContext({ console, URL, setInterval, clearInterval });
+  context.globalThis = context;
+  vm.runInContext(fs.readFileSync("shared/schema.js", "utf8"), context, {
+    filename: "shared/schema.js",
+  });
+  vm.runInContext(fs.readFileSync("content/dwell-tracker.js", "utf8"), context, {
+    filename: "content/dwell-tracker.js",
+  });
+
+  const { NAVIGATION_SOURCES } = context.JJG_SCHEMA;
+  const { classifyNavigationSource, createDwellTracker } = context.JJG_DWELL_TRACKER;
+  const fakeLink = (href, matched = []) => ({
+    href,
+    getAttribute: () => href,
+    closest: (selector) => matched.includes(selector) ? {} : null,
+  });
+  const classify = (currentPath, href, matched = []) => classifyNavigationSource({
+    currentPath,
+    currentHref: `https://www.youtube.com${currentPath}`,
+    targetHref: href,
+    linkElement: fakeLink(href, matched),
+  });
+  assert.equal(classify("/results", "/watch?v=a"), NAVIGATION_SOURCES.SEARCH);
+  assert.equal(classify("/watch", "/watch?v=a"), NAVIGATION_SOURCES.RECOMMENDATION);
+  assert.equal(classify("/", "/watch?v=a"), NAVIGATION_SOURCES.HOME);
+  assert.equal(classify("/watch", "/watch?v=a&list=p"), NAVIGATION_SOURCES.PLAYLIST);
+  assert.equal(classify("/feed/subscriptions", "/shorts/a"), NAVIGATION_SOURCES.SHORTS);
+  assert.equal(classify("/channel/test", "/watch?v=a"), NAVIGATION_SOURCES.UNKNOWN);
+
+  let clock = 1000;
+  let session = { sessionId: 1, status: "active" };
+  let videoId = "a";
+  let path = "/watch";
+  let intervalRegistrations = 0;
+  let intervalCallback = null;
+  let clearCount = 0;
+  const logs = new Map();
+  const tracker = createDwellTracker({
+    now: () => clock,
+    getSession: async () => session,
+    getCurrentVideoId: () => videoId,
+    getCurrentHref: () => `https://www.youtube.com/watch?v=${videoId}`,
+    getCurrentPath: () => path,
+    getReferrer: () => "",
+    randomId: () => "fixed-" + clock,
+    setInterval: (callback) => {
+      intervalRegistrations += 1;
+      intervalCallback = callback;
+      return intervalRegistrations;
+    },
+    clearInterval: () => { clearCount += 1; },
+    updateLogEntryById: async (entryId, changes) => {
+      if (!logs.has(entryId)) return false;
+      logs.set(entryId, { ...logs.get(entryId), ...changes });
+      return true;
+    },
+  });
+
+  await tracker.handleLocationChange();
+  const entryA = await tracker.getEntryContext("a", "영상 A");
+  logs.set(entryA.entryId, { ...entryA, action: "approved_reason", userReason: "학습 사례" });
+  await tracker.handleLocationChange();
+  assert.equal(intervalRegistrations, 1);
+
+  clock = 11000;
+  await intervalCallback();
+  assert.equal(logs.size, 1);
+  assert.equal(logs.get(entryA.entryId).dwellMs, 10000);
+  assert.equal(logs.get(entryA.entryId).action, "approved_reason");
+  assert.equal(logs.get(entryA.entryId).userReason, "학습 사례");
+
+  const linkB = fakeLink("https://www.youtube.com/watch?v=b", ["ytd-compact-video-renderer"]);
+  let prevented = false;
+  tracker.captureLinkClick({
+    target: { closest: () => linkB },
+    preventDefault: () => { prevented = true; },
+  });
+  assert.equal(prevented, false);
+  clock = 21000;
+  videoId = "b";
+  await tracker.handleLocationChange();
+  assert.equal(logs.get(entryA.entryId).leftAt, 21000);
+  assert.equal(logs.get(entryA.entryId).dwellMs, 20000);
+
+  const entryB = await tracker.getEntryContext("b", "영상 B");
+  logs.set(entryB.entryId, { ...entryB, action: "watched" });
+  assert.equal(entryB.navigation.source, NAVIGATION_SOURCES.RECOMMENDATION);
+  assert.equal(entryB.navigation.fromEntryId, entryA.entryId);
+  assert.equal(entryB.navigation.fromVideoId, "a");
+  assert.equal(entryB.navigation.fromTitle, "영상 A");
+
+  clock = 26000;
+  session = { sessionId: 1, status: "ending" };
+  await tracker.handleLocationChange();
+  assert.equal(logs.get(entryB.entryId).dwellMs, 5000);
+  assert.ok(clearCount >= 1);
+
+  session = { sessionId: 2, status: "active" };
+  videoId = "a";
+  clock = 30000;
+  await tracker.handleLocationChange();
+  const revisitedA = await tracker.getEntryContext("a", "영상 A");
+  assert.notEqual(revisitedA.entryId, entryA.entryId);
+  assert.equal(revisitedA.sessionId, 2);
+  assert.equal(revisitedA.navigation.fromEntryId, "");
 }
 
 // 세션 종료 명세의 제약들이 실제로 지켜지는지 검증한다.
@@ -549,14 +695,17 @@ function run() {
   return (async () => {
     const storage = {};
     const context = loadContentScripts(storage);
-    const { appendLog, updateLogEntry } = context.JJG_LOG;
+    const { appendLog, updateLogEntry, updateLogEntryById } = context.JJG_LOG;
 
     assert.equal(
       await appendLog({ videoId: "a", title: "영상 A", action: "watched", ts: 1000 }),
       0
     );
     assert.equal(
-      await appendLog({ videoId: "b", title: "영상 B", action: "blocked", ts: 1001 }),
+      await appendLog({
+        entryId: "entry-b-1", videoId: "b", title: "영상 B", action: "blocked", ts: 1001,
+        enteredAt: 1001, navigation: { source: "recommendation", fromEntryId: "" },
+      }),
       1
     );
 
@@ -564,12 +713,30 @@ function run() {
     assert.equal(storage.jjg_session_log[1].action, "approved_reason");
     assert.equal(storage.jjg_session_log[1].userReason, "이유");
 
+    await updateLogEntryById("entry-b-1", {
+      leftAt: 2001,
+      dwellMs: 1000,
+      timeMeasurement: "measured",
+    });
+    assert.equal(storage.jjg_session_log[1].action, "approved_reason");
+    assert.equal(storage.jjg_session_log[1].userReason, "이유");
+    assert.equal(storage.jjg_session_log[1].dwellMs, 1000);
+
+    assert.equal(
+      await appendLog({
+        entryId: "entry-b-2", videoId: "b", title: "영상 B 재방문",
+        action: "watched", ts: 3000,
+      }),
+      2
+    );
+
     await updateLogEntry(99, { action: "watched" }); // 없는 인덱스는 조용히 무시
-    assert.equal(storage.jjg_session_log.length, 2);
+    assert.equal(storage.jjg_session_log.length, 3);
 
     await testSessionLifecycle();
     await testCompletionUI();
     testNextSessionRulesView();
+    await testDwellTrackerAndNavigation();
     console.log("content script/목표 달성/규칙 렌더링 시나리오 통과");
   })();
 }

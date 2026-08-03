@@ -54,6 +54,7 @@
 
   // 새 목적을 정하면 이전 세션의 로그·리포트·달성 결과를 모두 초기화하고 active로 돌아간다.
   async function startNewSession(purpose, goalProfile = null) {
+    if (root.JJG_DWELL_TRACKER) await root.JJG_DWELL_TRACKER.finalizeCurrent();
     const session = createSession();
 
     let validGoalProfile = null;
@@ -77,6 +78,7 @@
       [STORAGE_KEYS.SESSION_REPORT]: null,
       [STORAGE_KEYS.COMPLETION_RESULT]: null,
     });
+    if (root.JJG_DWELL_TRACKER) await root.JJG_DWELL_TRACKER.resetForSession(session.sessionId);
     await renderSessionBar();
   }
 
@@ -84,6 +86,7 @@
   // 이미 active가 아니면 아무것도 하지 않으므로 중복 클릭이 안전하다.
   async function beginEnding() {
     if ((await getStatus()) !== SESSION_STATUS.ACTIVE) return false;
+    if (root.JJG_DWELL_TRACKER) await root.JJG_DWELL_TRACKER.finalizeCurrent();
     const saved = await root.JJG_STORAGE.set({
       [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ENDING,
     });

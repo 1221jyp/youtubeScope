@@ -63,7 +63,10 @@
     if (!Array.isArray(rawLog)) return [];
     return rawLog.flatMap((entry) => {
       const normalized = normalizeLogEntry(entry);
-      if (!normalized.valid) return [];
+      // 시간·이동 원인 같은 보조 필드 오류가 있어도 action/ts가 안전하면 규칙 증거는 유지한다.
+      if (!normalized.valid && (normalized.value.ts == null || normalized.value.action == null)) {
+        return [];
+      }
       if (normalized.value.sessionId != null && normalized.value.sessionId !== sessionId) {
         return [];
       }

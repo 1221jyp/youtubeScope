@@ -7,12 +7,14 @@
   const { handleWatchPage } = root.JJG_JUDGE_FLOW;
   const { getSession, renderSessionBar, showPurposeModal } = root.JJG_SESSION;
   const { syncShortsUiVisibility, blockShortsIfNeeded } = root.JJG_SHORTS_BLOCK;
+  const dwellTracker = root.JJG_DWELL_TRACKER;
 
   const NAVIGATE_DEBOUNCE_MS = 150;
   let navigateDebounceTimer = null;
 
   // 유튜브는 한 번의 이동에 여러 이벤트를 흘리므로 짧게 묶어서 한 번만 처리한다.
   function onNavigate() {
+    dwellTracker.handleLocationChange();
     // 쇼츠는 진입 즉시 자동재생되므로 디바운스를 거치지 않고 그 자리에서 바로 판단한다.
     // (blockShortsIfNeeded는 캐시된 몰입 상태만 보고 동기적으로 되감는다)
     if (blockShortsIfNeeded()) return;
@@ -31,15 +33,25 @@
   if (chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local" || !changes[STORAGE_KEYS.SESSION_STATUS]) return;
+      if (
+        changes[STORAGE_KEYS.SESSION_STATUS].newValue === SESSION_STATUS.ENDING ||
+        changes[STORAGE_KEYS.SESSION_STATUS].newValue === SESSION_STATUS.ENDED
+      ) {
+        dwellTracker.finalizeCurrent();
+      }
       renderSessionBar();
       syncShortsUiVisibility();
     });
   }
 
   (async () => {
+    document.addEventListener("click", dwellTracker.captureLinkClick, true);
+    window.addEventListener("pagehide", () => dwellTracker.finalizeCurrent());
+    window.addEventListener("beforeunload", () => dwellTracker.finalizeCurrent());
     // 페이지가 쇼츠로 바로 열렸을 수도 있으니 부팅 시에도 먼저 확인한다.
     // (JJG_SHORTS_BLOCK의 몰입 상태 캐시가 아직 초기화 중일 수 있어 여기서는 getSession()으로 직접 판단한다)
     const session = await getSession();
+    await dwellTracker.handleLocationChange();
     await renderSessionBar();
     await syncShortsUiVisibility();
     if (session.status === SESSION_STATUS.ACTIVE && root.JJG_SHORTS_BLOCK.isShortsUrl(location.href)) {
