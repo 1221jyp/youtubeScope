@@ -3,7 +3,7 @@
 (function (root) {
   "use strict";
 
-  const { normalizeGoalProfile } = root.JJG_SCHEMA;
+  const { normalizeGoalProfile, AI_ERROR_CODES, AI_REQUEST_STATUS } = root.JJG_SCHEMA;
   const { callFunction, getConfig } = root.JJG_GEMINI;
   const { textOrEmpty } = root.JJG_TEXT;
 
@@ -63,12 +63,18 @@
   async function generateGoalProfile({ purpose }) {
     const rawPurpose = textOrEmpty(purpose);
     if (!rawPurpose) {
-      return { ok: false, error: "목적이 비어 있습니다." };
+      return { ok: false, status: AI_REQUEST_STATUS.ERROR, error: "목적이 비어 있습니다." };
     }
 
     const { apiKey, model } = await getConfig();
     if (!apiKey) {
-      return { ok: false, code: "API_KEY_NOT_SET", error: "Gemini API 키가 설정되지 않았습니다." };
+      return {
+        ok: false,
+        code: "API_KEY_NOT_SET",
+        errorCode: AI_ERROR_CODES.API_KEY_NOT_SET,
+        status: AI_REQUEST_STATUS.ERROR,
+        error: "Gemini API 키가 설정되지 않았습니다.",
+      };
     }
 
     try {
@@ -94,10 +100,6 @@
         timeoutMs: TIMEOUT_MS,
       });
 
-      if (!args) {
-        return { ok: false, error: "AI 응답 형식을 해석할 수 없습니다." };
-      }
-
       // rawPurpose가 혹시 Gemini 응답 과정에서 변형되었으면 사용자의 원문으로 확실하게 채워넣음
       const candidate = {
         ...args,
@@ -107,14 +109,25 @@
       const normalized = normalizeGoalProfile(candidate);
       if (!normalized.valid) {
         console.warn("[조준경] normalizeGoalProfile 검증 실패:", normalized.errors);
-        return { ok: false, error: "AI가 생성한 목표 구체화 형식이 유효하지 않습니다." };
+        return {
+          ok: false,
+          status: AI_REQUEST_STATUS.ERROR,
+          errorCode: AI_ERROR_CODES.PARSE_ERROR,
+          error: "AI가 생성한 목표 구체화 형식이 유효하지 않습니다.",
+        };
       }
 
-      return { ok: true, goalProfile: normalized.value };
+      return { ok: true, status: AI_REQUEST_STATUS.SUCCESS, goalProfile: normalized.value };
     } catch (err) {
+      const errorCode = (err && err.code) || AI_ERROR_CODES.UNKNOWN;
       const reason = (err && err.message) || "목적 구체화 실패";
-      console.warn("[조준경] generateGoalProfile 에러:", reason);
-      return { ok: false, error: reason };
+      console.warn("[조준경] generateGoalProfile 에러:", errorCode, reason);
+      return {
+        ok: false,
+        error: reason,
+        errorCode,
+        status: errorCode === AI_ERROR_CODES.TIMEOUT ? AI_REQUEST_STATUS.TIMEOUT : AI_REQUEST_STATUS.ERROR,
+      };
     }
   }
 

@@ -1,6 +1,12 @@
 // [파트: 세션 리포트] GENERATE_SESSION_REPORT 처리.
 // 로그에서 직접 세는 "증거 리포트"를 먼저 만들고, AI 서술을 그 위에 덧붙인다.
 // 이렇게 해야 AI가 없는 이탈을 지어내도 숫자는 항상 로그와 일치한다.
+//
+// [상태 구분]
+// AI 호출(callGeminiForReport)이 실패하면 gemini.js가 code가 붙은 GeminiError를 던진다.
+// 여기서는 그 code를 errorCode로, timeout이면 status: "timeout", 그 외엔 status: "error"로
+// 응답에 실어 보낸다. 세션 상태/로그 부족 등 앱 레벨 검증 실패는 AI 오류가 아니므로
+// errorCode 없이 status: "error"만 붙인다. 성공 시(캐시 히트 포함)에는 status: "success".
 (function (root) {
   "use strict";
 
@@ -10,6 +16,8 @@
     LOG_ACTIONS,
     NAVIGATION_SOURCES,
     TIME_MEASUREMENTS,
+    AI_ERROR_CODES,
+    AI_REQUEST_STATUS,
     normalizeSession,
     normalizeGoalProfile,
     normalizeCompletionResult,
@@ -447,6 +455,8 @@
       navigationSource: entry.navigation?.source,
     }));
 
+    // callFunction은 실패 시 code가 붙은 GeminiError를 던진다 (네트워크/타임아웃/인증/한도초과/응답형식 오류 구분).
+    // 여기서 잡지 않고 그대로 generateSessionReport로 던져서, 거기서 status/errorCode로 변환한다.
     const args = await callFunction({
       apiKey,
       model,
@@ -506,6 +516,8 @@
       timeoutMessage: "리포트 생성 시간 초과",
     });
 
+    // gemini.js가 args 없음을 이미 PARSE_ERROR로 던지므로 이 분기는 도달하지 않지만,
+    // 방어적으로 남겨둔다.
     if (!args) throw new Error("AI 응답 형식 이상");
     return normalizeReport(args);
   }
@@ -528,6 +540,7 @@
       return {
         ok: false,
         code: "SESSION_NOT_ENDED",
+        status: AI_REQUEST_STATUS.ERROR,
         error: "세션 종료 후 리포트를 생성할 수 있습니다.",
       };
     }
@@ -537,6 +550,7 @@
       return {
         ok: false,
         code: "COMPLETION_RESULT_MISSING",
+        status: AI_REQUEST_STATUS.ERROR,
         error: "목표 달성 결과를 먼저 저장해주세요.",
       };
     }
@@ -545,6 +559,7 @@
       return {
         ok: false,
         code: "INVALID_COMPLETION_RESULT",
+        status: AI_REQUEST_STATUS.ERROR,
         error: "목표 달성 결과가 올바르지 않습니다.",
       };
     }
@@ -559,6 +574,7 @@
       return {
         ok: false,
         code: "INVALID_SESSION",
+        status: AI_REQUEST_STATUS.ERROR,
         error: "세션 정보가 올바르지 않습니다.",
       };
     }
@@ -598,6 +614,7 @@
     if (!force && cached?.sessionId === session.sessionId && cached.report) {
       return {
         ok: true,
+        status: AI_REQUEST_STATUS.SUCCESS,
         report: normalizeReport(cached.report),
         generatedAt: cached.generatedAt,
         cached: true,
@@ -606,12 +623,23 @@
 
     const analyzable = log.filter((entry) => ANALYZABLE_ACTIONS.includes(entry?.action));
     if (analyzable.length < 2) {
-      return { ok: false, code: "INSUFFICIENT_LOG", error: "분석할 시청 기록이 아직 충분하지 않습니다." };
+      return {
+        ok: false,
+        code: "INSUFFICIENT_LOG",
+        status: AI_REQUEST_STATUS.ERROR,
+        error: "분석할 시청 기록이 아직 충분하지 않습니다.",
+      };
     }
 
     const { apiKey, model } = await getConfig();
     if (!apiKey) {
-      return { ok: false, code: "API_KEY_NOT_SET", error: "Gemini API 키가 설정되지 않았습니다." };
+      return {
+        ok: false,
+        code: "API_KEY_NOT_SET",
+        errorCode: AI_ERROR_CODES.API_KEY_NOT_SET,
+        status: AI_REQUEST_STATUS.ERROR,
+        error: "Gemini API 키가 설정되지 않았습니다.",
+      };
     }
 
     const evidenceReport = buildEvidenceReport(purpose, log, session, {
@@ -632,7 +660,26 @@
       timeline: evidenceReport.timeline,
       dataQuality: evidenceReport.dataQuality,
     };
-    const aiReport = await callGeminiForReport(apiKey, model, reportInput);
+
+    // [핵심] AI 호출 실패(네트워크/타임아웃/인증/한도초과/응답형식 오류)는 여기서만 잡아서
+    // status/errorCode로 변환한다. 이 실패는 "이탈 리포트 내용"과 절대 섞이면 안 되므로
+    // 증거 리포트(buildEvidenceReport)조차 시도하지 않고 바로 에러로 반환한다.
+    let aiReport;
+    try {
+      aiReport = await callGeminiForReport(apiKey, model, reportInput);
+    } catch (err) {
+      const errorCode = (err && err.code) || AI_ERROR_CODES.UNKNOWN;
+      const reason = (err && err.message) || "AI 리포트 생성 실패";
+      console.warn("[조준경] 세션 리포트 생성 실패:", errorCode, reason);
+      return {
+        ok: false,
+        code: "REPORT_GENERATION_FAILED",
+        errorCode,
+        status: errorCode === AI_ERROR_CODES.TIMEOUT ? AI_REQUEST_STATUS.TIMEOUT : AI_REQUEST_STATUS.ERROR,
+        error: reason,
+      };
+    }
+
     const report = mergeReportWithEvidence(
       aiReport,
       evidenceReport,
@@ -648,10 +695,17 @@
       return {
         ok: false,
         code: "REPORT_SAVE_FAILED",
+        status: AI_REQUEST_STATUS.ERROR,
         error: "리포트를 저장하지 못했습니다.",
       };
     }
-    return { ok: true, report, generatedAt: saved.generatedAt, cached: false };
+    return {
+      ok: true,
+      status: AI_REQUEST_STATUS.SUCCESS,
+      report,
+      generatedAt: saved.generatedAt,
+      cached: false,
+    };
   }
 
   async function handleGenerateSessionReport(message = {}) {
@@ -665,11 +719,16 @@
       )}`;
       if (inFlight.has(requestKey)) return await inFlight.get(requestKey);
 
-      const request = generateSessionReport(message.force === true).catch((err) => ({
-        ok: false,
-        code: "GENERATION_FAILED",
-        error: (err && err.message) || "AI 리포트를 생성하지 못했습니다.",
-      }));
+      const request = generateSessionReport(message.force === true).catch((err) => {
+        const errorCode = (err && err.code) || AI_ERROR_CODES.UNKNOWN;
+        return {
+          ok: false,
+          code: "GENERATION_FAILED",
+          errorCode,
+          status: errorCode === AI_ERROR_CODES.TIMEOUT ? AI_REQUEST_STATUS.TIMEOUT : AI_REQUEST_STATUS.ERROR,
+          error: (err && err.message) || "AI 리포트를 생성하지 못했습니다.",
+        };
+      });
       inFlight.set(requestKey, request);
       try {
         return await request;
@@ -677,7 +736,12 @@
         inFlight.delete(requestKey);
       }
     } catch (err) {
-      return { ok: false, code: "GENERATION_FAILED", error: "AI 리포트를 생성하지 못했습니다." };
+      return {
+        ok: false,
+        code: "GENERATION_FAILED",
+        status: AI_REQUEST_STATUS.ERROR,
+        error: "AI 리포트를 생성하지 못했습니다.",
+      };
     }
   }
 
