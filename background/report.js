@@ -30,6 +30,18 @@
 
   // 실제 사용자의 선택이 담긴 action만 리포트 분석 대상이다 (skipped는 AI 장애라 제외).
   const ANALYZABLE_ACTIONS = [LOG_ACTIONS.WATCHED, LOG_ACTIONS.APPROVED_REASON, LOG_ACTIONS.LEFT_ANYWAY, LOG_ACTIONS.WENT_BACK, LOG_ACTIONS.BLOCKED];
+  const SOURCE_LABELS = Object.freeze({
+    search: "검색",
+    recommendation: "추천 영상",
+    home: "홈",
+    subscriptions: "구독",
+    playlist: "재생목록",
+    shorts: "Shorts",
+    history: "기록",
+    external: "외부 진입",
+    direct: "직접 진입",
+    unknown: "이동 원인 불명",
+  });
 
   // 같은 세션에 대한 동시 요청을 하나로 합친다 (popup을 여러 번 열어도 API는 한 번만 호출).
   const inFlight = new Map();
@@ -40,7 +52,28 @@
     return Number.isFinite(number) && number >= 0 ? number : fallback;
   }
 
-  function buildTimeline(log) {
+  function isUsableDwell(entry) {
+    return (
+      nonNegativeNumber(entry?.dwellMs) != null &&
+      [TIME_MEASUREMENTS.MEASURED, TIME_MEASUREMENTS.ESTIMATED].includes(
+        entry?.timeMeasurement
+      )
+    );
+  }
+
+  function formatDuration(ms, { estimated = false } = {}) {
+    const safeMs = nonNegativeNumber(ms);
+    if (safeMs == null) return "측정 불가";
+    const totalSeconds = Math.floor(safeMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const text = minutes > 0
+      ? `${minutes}분${seconds ? ` ${seconds}초` : ""}`
+      : `${seconds}초`;
+    return estimated ? `약 ${text}` : text;
+  }
+
+  function sortLogChronologically(log) {
     return log
       .map((entry, originalIndex) => ({ entry, originalIndex }))
       .sort((a, b) => {
@@ -48,7 +81,12 @@
         const bTime = b.entry.enteredAt ?? b.entry.ts;
         return aTime - bTime || a.originalIndex - b.originalIndex;
       })
-      .map(({ entry }, index) => ({
+      .map(({ entry }) => entry);
+  }
+
+  function buildTimeline(log) {
+    return sortLogChronologically(log)
+      .map((entry, index) => ({
         entryId: textOrEmpty(entry.entryId),
         order: index + 1,
         videoId: textOrEmpty(entry.videoId),
@@ -79,17 +117,19 @@
     const sessionDurationMs = startedAt != null && endedAt != null && endedAt >= startedAt
       ? endedAt - startedAt
       : null;
+    const timedLog = log.filter(isUsableDwell);
     const dwellFor = (entry) => nonNegativeNumber(entry.dwellMs, 0);
-    const trackedDwellMs = log.reduce((sum, entry) => sum + dwellFor(entry), 0);
+    const trackedDwellMs = timedLog.reduce((sum, entry) => sum + dwellFor(entry), 0);
     const focusedDwellMs = log
-      .filter((entry) => [LOG_ACTIONS.WATCHED, LOG_ACTIONS.APPROVED_REASON].includes(entry.action))
+      .filter((entry) => isUsableDwell(entry) && [LOG_ACTIONS.WATCHED, LOG_ACTIONS.APPROVED_REASON].includes(entry.action))
       .reduce((sum, entry) => sum + dwellFor(entry), 0);
     const approvedDwellMs = log
-      .filter((entry) => entry.action === LOG_ACTIONS.APPROVED_REASON)
+      .filter((entry) => isUsableDwell(entry) && entry.action === LOG_ACTIONS.APPROVED_REASON)
       .reduce((sum, entry) => sum + dwellFor(entry), 0);
     const deviationDwellMs = log
-      .filter((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY)
+      .filter((entry) => isUsableDwell(entry) && entry.action === LOG_ACTIONS.LEFT_ANYWAY)
       .reduce((sum, entry) => sum + dwellFor(entry), 0);
+    const hasOverlap = sessionDurationMs != null && trackedDwellMs > sessionDurationMs;
     return {
       sessionDurationMs,
       trackedDwellMs,
@@ -97,8 +137,8 @@
       focusedDwellMs,
       approvedDwellMs,
       deviationDwellMs,
-      focusedRatio: trackedDwellMs > 0 ? focusedDwellMs / trackedDwellMs : null,
-      deviationRatio: trackedDwellMs > 0 ? deviationDwellMs / trackedDwellMs : null,
+      focusedRatio: trackedDwellMs > 0 && !hasOverlap ? focusedDwellMs / trackedDwellMs : null,
+      deviationRatio: trackedDwellMs > 0 && !hasOverlap ? deviationDwellMs / trackedDwellMs : null,
     };
   }
 
@@ -109,11 +149,24 @@
         ? entry.navigation.source
         : NAVIGATION_SOURCES.UNKNOWN;
       if (!bySource.has(source)) {
-        bySource.set(source, { source, count: 0, dwellMs: 0, actualDeviations: 0 });
+        bySource.set(source, {
+          source,
+          count: 0,
+          dwellMs: 0,
+          timedEntries: 0,
+          estimatedEntries: 0,
+          actualDeviations: 0,
+        });
       }
       const stat = bySource.get(source);
       stat.count += 1;
-      stat.dwellMs += nonNegativeNumber(entry.dwellMs, 0);
+      if (isUsableDwell(entry)) {
+        stat.dwellMs += nonNegativeNumber(entry.dwellMs, 0);
+        stat.timedEntries += 1;
+        if (entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED) {
+          stat.estimatedEntries += 1;
+        }
+      }
       if (entry.action === LOG_ACTIONS.LEFT_ANYWAY) stat.actualDeviations += 1;
     }
     return [...bySource.values()];
@@ -131,13 +184,23 @@
       (entry) => entry.navigation?.source === NAVIGATION_SOURCES.UNKNOWN
     ).length;
     const warnings = [];
-    if (unknownTimeEntries) warnings.push("일부 영상의 체류시간을 측정하지 못했습니다.");
+    if (unknownTimeEntries === log.length && log.length > 0) {
+      warnings.push(
+        "이번 세션에서는 영상별 체류시간을 충분히 측정하지 못했습니다. 영상 판정과 선택 기록을 중심으로 분석했습니다."
+      );
+    } else if (unknownTimeEntries) {
+      warnings.push(
+        `전체 로그 ${log.length}개 중 ${measuredTimeEntries + estimatedTimeEntries}개의 체류시간이 측정되었습니다. 시간 분석은 측정된 기록만 반영했습니다.`
+      );
+    }
     if (unknownNavigationEntries) warnings.push("일부 영상의 이동 원인을 확인하지 못했습니다.");
     if (
       timeStats?.sessionDurationMs != null &&
       timeStats.trackedDwellMs > timeStats.sessionDurationMs
     ) {
-      warnings.push("측정된 체류시간 합계가 전체 세션 시간보다 깁니다.");
+      warnings.push(
+        "여러 탭 사용 또는 측정 중복으로 체류시간 합계가 세션 시간보다 길 수 있습니다. 이 경우 체류시간 비율은 표시하지 않습니다."
+      );
     }
     if (invalidLogs) warnings.push("일부 로그의 형식이 올바르지 않아 분석에서 제외했습니다.");
     return {
@@ -171,6 +234,71 @@
         patterns: { type: "ARRAY", items: { type: "STRING" } },
         recommendations: { type: "ARRAY", items: { type: "STRING" } },
         encouragement: { type: "STRING" },
+        analysis: {
+          type: "OBJECT",
+          properties: {
+            headline: { type: "STRING" },
+            summary: { type: "STRING" },
+            focusAnalysis: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+            timeAnalysis: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+            sourceAnalysis: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+            preventionAnalysis: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+            deviationAnalysis: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+            goalAssessment: {
+              type: "OBJECT",
+              properties: {
+                summary: { type: "STRING" },
+                evidenceIds: { type: "ARRAY", items: { type: "STRING" } },
+              },
+              required: ["summary", "evidenceIds"],
+            },
+          },
+          required: [
+            "headline",
+            "summary",
+            "focusAnalysis",
+            "timeAnalysis",
+            "sourceAnalysis",
+            "preventionAnalysis",
+            "deviationAnalysis",
+            "goalAssessment",
+          ],
+        },
       },
       required: [
         "summary",
@@ -179,11 +307,28 @@
         "patterns",
         "recommendations",
         "encouragement",
+        "analysis",
       ],
     },
   };
 
-  function normalizeReport(value) {
+  function normalizeAnalysisPart(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const summary = textOrEmpty(value.summary);
+    const evidenceIds = stringArray(value.evidenceIds, 20);
+    return summary || evidenceIds.length ? { summary, evidenceIds } : null;
+  }
+
+  function deriveHasActualDeviation(value, normalizedLog = null) {
+    if (Array.isArray(normalizedLog) && normalizedLog.length > 0) {
+      return normalizedLog.some((entry) => entry?.action === LOG_ACTIONS.LEFT_ANYWAY);
+    }
+    const actualDeviations = nonNegativeNumber(value?.stats?.actualDeviations);
+    if (actualDeviations != null) return actualDeviations > 0;
+    return Boolean(textOrEmpty(value?.firstDeviation?.title));
+  }
+
+  function normalizeReport(value, normalizedLog = null) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error("AI 응답 형식 이상");
     }
@@ -198,16 +343,28 @@
     const hasDataQuality = value.dataQuality && typeof value.dataQuality === "object";
     const dataQuality = hasDataQuality ? value.dataQuality : {};
     const nullableNumber = (field) => nonNegativeNumber(timeStats[field]);
+    const hasActualDeviation = deriveHasActualDeviation(value, normalizedLog);
+    const analysis = value.analysis && typeof value.analysis === "object"
+      ? value.analysis : {};
+    const evidence = Array.isArray(value.evidence) ? value.evidence : [];
     return {
+      hasActualDeviation,
       summary: textOrEmpty(value.summary),
       firstDeviation:
-        first && typeof first === "object"
+        hasActualDeviation && first && typeof first === "object"
           ? {
+              entryId: textOrEmpty(first.entryId),
               title: textOrEmpty(first.title),
               reason: textOrEmpty(first.reason),
+              dwellMs: nonNegativeNumber(first.dwellMs),
+              timeMeasurement: Object.values(TIME_MEASUREMENTS).includes(first.timeMeasurement)
+                ? first.timeMeasurement : TIME_MEASUREMENTS.UNKNOWN,
+              navigationSource: Object.values(NAVIGATION_SOURCES).includes(first.navigationSource)
+                ? first.navigationSource : NAVIGATION_SOURCES.UNKNOWN,
+              evidenceId: textOrEmpty(first.evidenceId),
             }
           : { title: "", reason: "" },
-      diversionPath: stringArray(value.diversionPath, 12),
+      diversionPath: hasActualDeviation ? stringArray(value.diversionPath, 12) : [],
       patterns: stringArray(value.patterns),
       recommendations: stringArray(value.recommendations),
       encouragement: textOrEmpty(value.encouragement),
@@ -239,6 +396,11 @@
           source,
           count: nonNegativeNumber(item.count, 0),
           dwellMs: nonNegativeNumber(item.dwellMs, 0),
+          timedEntries: nonNegativeNumber(
+            item.timedEntries,
+            nonNegativeNumber(item.dwellMs, 0) > 0 ? 1 : 0
+          ),
+          estimatedEntries: nonNegativeNumber(item.estimatedEntries, 0),
           actualDeviations: nonNegativeNumber(item.actualDeviations, 0),
         }];
       }),
@@ -273,90 +435,226 @@
         unknownNavigationEntries: nonNegativeNumber(dataQuality.unknownNavigationEntries, 0),
         warnings: stringArray(dataQuality.warnings),
       } : null,
+      evidence: evidence.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const id = textOrEmpty(item.id);
+        const text = textOrEmpty(item.text);
+        return id && text ? [{ id, type: textOrEmpty(item.type), text }] : [];
+      }),
+      analysis: {
+        headline: textOrEmpty(analysis.headline),
+        summary: textOrEmpty(analysis.summary),
+        focusAnalysis: normalizeAnalysisPart(analysis.focusAnalysis),
+        timeAnalysis: normalizeAnalysisPart(analysis.timeAnalysis),
+        sourceAnalysis: normalizeAnalysisPart(analysis.sourceAnalysis),
+        preventionAnalysis: normalizeAnalysisPart(analysis.preventionAnalysis),
+        deviationAnalysis: hasActualDeviation
+          ? normalizeAnalysisPart(analysis.deviationAnalysis) : null,
+        goalAssessment: normalizeAnalysisPart(analysis.goalAssessment),
+      },
     };
   }
 
   function buildEvidenceReport(purpose, log, session = null, qualityInput = {}) {
-    const usable = log.filter(
+    const usable = sortLogChronologically(log.filter(
       (entry) => ANALYZABLE_ACTIONS.includes(entry?.action) || entry?.action === LOG_ACTIONS.SKIPPED
-    );
+    ));
     const watchedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.WATCHED).length;
     const approvedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.APPROVED_REASON).length;
-    const deviationCount = usable.filter((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY).length;
+    const actualDeviationEntries = usable.filter(
+      (entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY
+    );
+    const hasActualDeviation = actualDeviationEntries.length > 0;
+    const deviationCount = actualDeviationEntries.length;
     const preventedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.WENT_BACK).length;
     const skippedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.SKIPPED).length;
     const blockedCount = usable.filter((entry) => entry.action === LOG_ACTIONS.BLOCKED).length;
     const firstIndex = usable.findIndex((entry) => entry.action === LOG_ACTIONS.LEFT_ANYWAY);
     const first = firstIndex >= 0 ? usable[firstIndex] : null;
+    const evidenceIdFor = (entry) => {
+      const index = usable.indexOf(entry);
+      return `log:${textOrEmpty(entry?.entryId) || index + 1}`;
+    };
 
     const facts = [
-      `판정 가능한 영상 ${watchedCount + approvedCount + deviationCount + preventedCount}개`,
+      hasActualDeviation
+        ? `실제 이탈 ${deviationCount}회`
+        : "확인된 실제 이탈 없음",
+      `관련 시청 ${watchedCount}개`,
     ];
-    if (deviationCount) facts.push(`경고 후 시청한 이탈 ${deviationCount}번`);
-    else facts.push("경고 후 시청한 이탈 없음");
     if (approvedCount) facts.push(`이유를 설명해 승인받은 영상 ${approvedCount}개`);
-    if (preventedCount) facts.push(`돌아가기로 막은 이탈 ${preventedCount}번`);
-    if (blockedCount) facts.push(`선택 없이 차단된 영상 ${blockedCount}번`);
-    if (skippedCount) facts.push(`판정 건너뜀 ${skippedCount}번`);
+    if (preventedCount) facts.push(`돌아가기로 방지 ${preventedCount}회`);
+    if (blockedCount) facts.push(`차단 ${blockedCount}회`);
+    if (skippedCount) facts.push(`판정 건너뜀 ${skippedCount}회`);
 
     const patterns = [];
     if (deviationCount > 1) {
-      patterns.push(`목적과 무관하다는 경고 후에도 시청한 영상이 ${deviationCount}개 있었습니다.`);
+      patterns.push(`이번 세션에서 실제 이탈이 ${deviationCount}회 확인되었습니다.`);
     } else if (deviationCount === 1) {
-      patterns.push("한 번의 이탈이 있었지만 반복적인 이탈 패턴으로 단정하기에는 기록이 적습니다.");
+      patterns.push("이번 세션에서 실제 이탈이 한 번 확인되었지만 반복 습관으로 단정하기에는 기록이 부족합니다.");
     } else {
-      patterns.push(`‘${purpose || "현재 목적"}’에서 벗어나 시청한 것으로 확인된 영상은 없습니다.`);
+      patterns.push("이번 세션에서는 확인된 실제 이탈이 없습니다.");
     }
     if (approvedCount) {
       patterns.push(
-        `경고 후 이유를 설명해 AI 승인을 받고 시청한 영상이 ${approvedCount}개 있었습니다. 이탈로 집계하지 않았습니다.`
+        `경계 영상 ${approvedCount}개는 사용자가 목적과의 연결 이유를 설명하고 AI 승인을 받아 시청했습니다. 이 기록은 이탈로 집계하지 않았습니다.`
       );
     }
-    if (preventedCount) {
-      patterns.push(`경고를 보고 ${preventedCount}번 돌아가 목적 이탈을 막았습니다.`);
-    }
-    if (blockedCount) {
-      patterns.push(`목적과 무관하다고 판정되어 선택 없이 차단된 영상이 ${blockedCount}개 있었습니다.`);
+    if (preventedCount || blockedCount) {
+      patterns.push(
+        `실제 이탈과 별도로 관련 없는 영상 접근 시도 ${preventedCount + blockedCount}회가 기록되었고, ` +
+        `그중 ${preventedCount}회는 경고 후 돌아가기를 선택해 이탈을 방지했습니다.`
+      );
     }
     if (skippedCount) {
       patterns.push(`${skippedCount}개 영상은 AI 장애로 판정하지 못했으므로 이탈 분석에서 제외했습니다.`);
     }
 
-    const recommendations = deviationCount
-      ? [
-          "경고가 뜬 영상은 재생하기 전에 현재 목적과의 연결점을 한 문장으로 확인해 보세요.",
-          "목적과 무관하지만 보고 싶은 영상은 다음 세션에 볼 목록으로 따로 남겨두세요.",
-        ]
-      : [
-          "다음 세션도 시작 전에 목적을 구체적인 한 문장으로 정해 보세요.",
-          "관련 영상 시청을 마치면 추천 영상으로 이동하기 전에 세션 종료 여부를 확인하세요.",
-        ];
-
-    const path =
-      firstIndex >= 0
-        ? usable
-            .slice(Math.max(0, firstIndex - 2), Math.min(usable.length, firstIndex + 3))
-            .filter((entry) => entry.action !== LOG_ACTIONS.SKIPPED)
-            .map((entry) => textOrEmpty(entry.title) || "(제목 없음)")
-        : [];
+    const preceding = firstIndex >= 0
+      ? usable.slice(0, firstIndex).filter((entry) => entry.action !== LOG_ACTIONS.SKIPPED).slice(-2)
+      : [];
+    const followingDeviations = [];
+    if (firstIndex >= 0) {
+      for (let index = firstIndex + 1; index < usable.length; index += 1) {
+        if (usable[index].action !== LOG_ACTIONS.LEFT_ANYWAY) break;
+        followingDeviations.push(usable[index]);
+      }
+    }
+    const path = hasActualDeviation
+      ? [...preceding, first, ...followingDeviations]
+          .map((entry) => textOrEmpty(entry.title))
+          .filter(Boolean)
+      : [];
 
     const timeStats = buildTimeStats(session, usable);
+    const sourceStats = buildSourceStats(usable);
+    const timedEntries = usable.filter(isUsableDwell);
+    const hasEstimatedTime = timedEntries.some(
+      (entry) => entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED
+    );
+    const evidence = [];
+    if (timedEntries.length > 0) {
+      evidence.push({
+        id: "TIME_1",
+        type: "focused_time",
+        text: hasEstimatedTime
+          ? `측정된 영상 체류시간은 추정값을 포함해 약 ${formatDuration(timeStats.trackedDwellMs)}이며 ` +
+            `그중 목표 관련 영상 체류시간은 약 ${formatDuration(timeStats.focusedDwellMs)}임.`
+          : `측정된 영상 체류시간 ${formatDuration(timeStats.trackedDwellMs)} 중 ` +
+            `목표 관련 영상 체류시간은 ${formatDuration(timeStats.focusedDwellMs)}임.`,
+      });
+      const longest = timedEntries.reduce((best, entry) =>
+        nonNegativeNumber(entry.dwellMs, 0) > nonNegativeNumber(best.dwellMs, 0) ? entry : best
+      );
+      evidence.push({
+        id: "TIME_2",
+        type: "longest_entry",
+        text:
+          `${textOrEmpty(longest.title) || "(제목 없음)"} 페이지에 ` +
+          `${formatDuration(longest.dwellMs, {
+            estimated: longest.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED,
+          })}간 머묾.`,
+      });
+    }
+    sourceStats.forEach((stat, index) => {
+      const estimated = usable.some(
+        (entry) => entry.navigation?.source === stat.source &&
+          entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED && isUsableDwell(entry)
+      );
+      evidence.push({
+        id: `SOURCE_${index + 1}`,
+        type: "navigation_source",
+        text: stat.timedEntries > 0
+          ? `${SOURCE_LABELS[stat.source] || SOURCE_LABELS.unknown} 경로로 진입한 영상 ${stat.count}개의 ` +
+            `측정된 체류시간 합계는 ${formatDuration(stat.dwellMs, { estimated })}이며 ` +
+            `실제 이탈은 ${stat.actualDeviations}회임.`
+          : `${SOURCE_LABELS[stat.source] || SOURCE_LABELS.unknown} 경로로 진입한 영상 ${stat.count}개가 기록되었고 ` +
+            `체류시간은 측정 불가이며 실제 이탈은 ${stat.actualDeviations}회임.`,
+      });
+    });
+    if (approvedCount) evidence.push({
+      id: "ACTION_APPROVED",
+      type: "approved_reason",
+      text: `이유를 설명하고 AI 승인을 받아 시청한 영상이 ${approvedCount}개이며 이탈로 집계하지 않음.`,
+    });
+    if (preventedCount) evidence.push({
+      id: "ACTION_PREVENTED",
+      type: "prevention",
+      text: `경고 후 돌아가기를 선택해 실제 이탈을 방지한 기록이 ${preventedCount}회임.`,
+    });
+    if (blockedCount) evidence.push({
+      id: "ACTION_BLOCKED",
+      type: "blocked",
+      text: `관련 없다고 차단된 접근이 ${blockedCount}회이며 실제 이탈로 집계하지 않음.`,
+    });
+    actualDeviationEntries.forEach((entry) => {
+      const title = textOrEmpty(entry.title) || "제목이 기록되지 않은 영상";
+      const dwell = isUsableDwell(entry)
+        ? ` 페이지 체류시간은 ${formatDuration(entry.dwellMs, {
+            estimated: entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED,
+          })}임.`
+        : " 페이지 체류시간은 측정 불가임.";
+      evidence.push({
+        id: evidenceIdFor(entry),
+        type: "actual_deviation",
+        text:
+          `${title}에서 left_anyway가 기록되어 실제 이탈로 확인됨.` +
+          `${dwell} 이동 원인은 ${SOURCE_LABELS[entry.navigation?.source] || SOURCE_LABELS.unknown}임.`,
+      });
+    });
+
+    const completionStatus = qualityInput.completionResult?.status;
+    const completionLabels = { achieved: "달성", partial: "부분 달성", not_achieved: "미달성" };
+    if (completionLabels[completionStatus]) evidence.push({
+      id: "GOAL_1",
+      type: "goal_assessment",
+      text: `사용자가 확인한 목표 달성 결과는 ${completionLabels[completionStatus]}임.`,
+    });
+
+    const timeEvidenceIds = evidence.filter((item) => item.id.startsWith("TIME_")).map((item) => item.id);
+    const sourceEvidenceIds = evidence.filter((item) => item.id.startsWith("SOURCE_")).map((item) => item.id);
+    const preventionEvidenceIds = evidence.filter((item) => item.id.startsWith("ACTION_")).map((item) => item.id);
+    const focusSummary = timedEntries.length
+      ? `측정된 영상 체류시간 ${formatDuration(timeStats.trackedDwellMs, {
+          estimated: hasEstimatedTime,
+        })} 중 목표 관련 영상에서 ${formatDuration(timeStats.focusedDwellMs, {
+          estimated: hasEstimatedTime,
+        })}이 기록되었습니다.`
+      : "영상별 체류시간이 충분히 측정되지 않아 영상 판정과 선택 기록을 중심으로 집중 흐름을 분석했습니다.";
+    const sourceSummary = sourceStats.length
+      ? sourceStats.map((stat) =>
+          `${SOURCE_LABELS[stat.source] || SOURCE_LABELS.unknown} 경로 ${stat.count}개에서 ${stat.timedEntries > 0
+            ? `측정된 체류시간 ${formatDuration(stat.dwellMs, {
+                estimated: stat.estimatedEntries > 0,
+              })}`
+            : "체류시간 측정 불가"}, 실제 이탈 ${stat.actualDeviations}회`
+        ).join("; ") + "."
+      : "확인할 수 있는 이동 원인 기록이 없습니다.";
+    const preventionSummary = preventionCountText(preventedCount, blockedCount, approvedCount);
+    const goalSummary = completionLabels[completionStatus]
+      ? `사용자가 확인한 목표 달성 결과는 ${completionLabels[completionStatus]}입니다. 체류시간만으로 목표 달성을 판단하지 않았습니다.`
+      : "목표 달성 결과와 세션 기록은 별개의 근거로 해석했습니다.";
+
     return {
+      hasActualDeviation,
       summary: `이번 세션은 ${facts.join(", ")}으로 기록되었습니다.`,
       firstDeviation: first
         ? {
-            title: textOrEmpty(first.title) || "(제목 없음)",
-            reason:
-              textOrEmpty(first.initialVerdict?.reason) ||
-              "AI 경고 후에도 시청을 선택한 첫 영상입니다.",
+            entryId: textOrEmpty(first.entryId),
+            title: textOrEmpty(first.title),
+            reason: textOrEmpty(first.initialVerdict?.reason),
+            dwellMs: nonNegativeNumber(first.dwellMs),
+            timeMeasurement: first.timeMeasurement,
+            navigationSource: first.navigation?.source,
+            evidenceId: evidenceIdFor(first),
           }
         : { title: "", reason: "" },
       diversionPath: path,
       patterns,
-      recommendations,
-      encouragement: deviationCount
-        ? "이탈 지점을 확인한 것만으로도 다음 세션의 선택을 더 선명하게 만들 수 있어요."
-        : "이번 집중 흐름을 다음 세션에서도 차분히 이어가 보세요.",
+      recommendations: [],
+      encouragement: hasActualDeviation
+        ? "이번 세션에서 확인된 이탈 근거를 다음 선택에 참고해 보세요."
+        : "확인된 실제 이탈은 없었습니다. 기록된 집중 유지 행동을 다음 세션에서도 참고해 보세요.",
       stats: {
         watched: watchedCount,
         approvedReason: approvedCount,
@@ -367,10 +665,41 @@
         actualDeviations: deviationCount,
       },
       timeStats,
-      sourceStats: buildSourceStats(usable),
+      sourceStats,
       timeline: buildTimeline(usable),
       dataQuality: buildDataQuality(usable, { ...qualityInput, timeStats }),
+      evidence,
+      analysis: {
+        headline: hasActualDeviation
+          ? `이번 세션에서 실제 이탈 ${deviationCount}회가 확인되었습니다.`
+          : "이번 세션에서는 확인된 실제 이탈이 없습니다.",
+        summary: `‘${purpose || "현재 목적"}’ 세션의 판정·선택·체류 기록을 함께 분석했습니다.`,
+        focusAnalysis: { summary: focusSummary, evidenceIds: timeEvidenceIds },
+        timeAnalysis: { summary: focusSummary, evidenceIds: timeEvidenceIds },
+        sourceAnalysis: { summary: sourceSummary, evidenceIds: sourceEvidenceIds },
+        preventionAnalysis: { summary: preventionSummary, evidenceIds: preventionEvidenceIds },
+        deviationAnalysis: hasActualDeviation ? {
+          summary:
+            `최초 실제 이탈은 ${textOrEmpty(first.title) || "제목이 기록되지 않은 영상"}에서 확인되었고, ` +
+            `이번 세션의 실제 이탈은 ${deviationCount}회입니다. 한 세션만으로 반복 습관을 단정하지 않습니다.`,
+          evidenceIds: [evidenceIdFor(first)],
+        } : null,
+        goalAssessment: {
+          summary: goalSummary,
+          evidenceIds: completionLabels[completionStatus] ? ["GOAL_1"] : [],
+        },
+      },
     };
+  }
+
+  function preventionCountText(preventedCount, blockedCount, approvedCount) {
+    const parts = [];
+    if (preventedCount) parts.push(`경고 후 돌아가기로 이탈을 방지한 기록 ${preventedCount}회`);
+    if (blockedCount) parts.push(`실제 시청 여부가 확인되지 않은 차단 ${blockedCount}회`);
+    if (approvedCount) parts.push(`목적과의 연결 이유를 인정받은 승인 시청 ${approvedCount}개`);
+    return parts.length
+      ? `${parts.join(", ")}가 확인되었습니다. 이 기록들은 실제 이탈로 집계하지 않았습니다.`
+      : "실제 이탈 또는 별도의 이탈 방지 행동이 기록되지 않았습니다.";
   }
 
   // Gemini가 구조화된 제목 필드에 실제 로그에 없는 제목을 하나라도 넣으면,
@@ -399,19 +728,12 @@
   // 숫자와 경로는 증거 리포트를 따르고, 검증을 통과한 AI 서술만 보탠다.
   function mergeReportWithEvidence(aiReport, evidence, actualTitles = []) {
     const safeAiReport = sanitizeAiReportByTitles(aiReport, actualTitles);
-    const aiSummary = textOrEmpty(safeAiReport.summary);
     return {
-      summary:
-        aiSummary && aiSummary !== evidence.summary
-          ? `${evidence.summary} ${aiSummary}`
-          : evidence.summary,
-      firstDeviation: {
-        title: evidence.firstDeviation.title,
-        reason:
-          evidence.firstDeviation.reason || textOrEmpty(safeAiReport.firstDeviation?.reason),
-      },
+      hasActualDeviation: evidence.hasActualDeviation,
+      summary: evidence.summary,
+      firstDeviation: evidence.firstDeviation,
       diversionPath: evidence.diversionPath,
-      patterns: uniqueStrings([...evidence.patterns, ...stringArray(safeAiReport.patterns)]),
+      patterns: evidence.patterns,
       recommendations: uniqueStrings([
         ...stringArray(safeAiReport.recommendations),
         ...evidence.recommendations,
@@ -422,6 +744,8 @@
       sourceStats: evidence.sourceStats,
       timeline: evidence.timeline,
       dataQuality: evidence.dataQuality,
+      evidence: evidence.evidence,
+      analysis: evidence.analysis,
     };
   }
 
@@ -439,6 +763,8 @@
       sourceStats,
       timeline,
       dataQuality,
+      hasActualDeviation,
+      evidence,
     } = reportInput;
     const safeLog = sessionLog.slice(-40).map((entry, index) => ({
       order: index + 1,
@@ -480,6 +806,8 @@
                 `코드 계산 체류 통계(JSON):\n${JSON.stringify(timeStats)}\n` +
                 `코드 계산 이동 원인 통계(JSON):\n${JSON.stringify(sourceStats)}\n` +
                 `코드 확정 타임라인(JSON):\n${JSON.stringify(timeline)}\n\n` +
+                `코드 확정 실제 이탈 여부: ${JSON.stringify(hasActualDeviation)}\n` +
+                `코드 생성 증거(JSON):\n${JSON.stringify(evidence)}\n\n` +
                 `데이터 품질 경고(JSON):\n${JSON.stringify(dataQuality)}\n\n` +
                 `로그 해석: watched는 목적에 맞게 시청, approved_reason은 경고 후 사용자가 시청 이유를 ` +
                 `설명해 AI 승인을 받고 시청한 사례, left_anyway는 AI 경고 후에도 시청한 이탈, ` +
@@ -505,6 +833,12 @@
                 `16. 코드가 계산한 통계·시간·timeline을 그대로 사용하며 없는 제목이나 이동 원인을 만들지 않는다.\n` +
                 `17. 측정되지 않은 시간을 0분이라고 표현하지 않는다.\n` +
                 `18. 세션 시간과 로그 체류시간이 다르면 데이터 제한을 언급한다.\n` +
+                `19. left_anyway가 없으면 첫 이탈 지점·이탈 경로·이탈 분석을 작성하지 않고, 체류시간·이유 승인·돌아가기·차단 기록을 우선 분석한다.\n` +
+                `20. dwellMs가 null이거나 timeMeasurement가 unknown인 시간은 계산하거나 추측하지 않는다. estimated는 반드시 ‘약’으로 표현한다.\n` +
+                `21. 숫자만 나열하지 말고 체류시간이 현재 목적과 어떤 관계인지 제한적으로 설명한다. 완벽한 집중이라고 단정하지 않는다.\n` +
+                `22. 한 세션의 한 번 행동으로 반복 습관을 단정하지 않는다. completionResult를 체류시간만으로 평가하지 않는다.\n` +
+                `23. analysis의 각 핵심 분석에는 코드 생성 증거의 id만 evidenceIds로 연결한다. 실제 이탈이 없으면 deviationAnalysis는 빈 요약과 빈 evidenceIds로 둔다.\n` +
+                `24. hasActualDeviation, 통계, 시간, 이동 원인, 타임라인, 첫 이탈, 이탈 경로는 코드가 최종 확정하므로 임의로 수정하지 않는다.\n` +
                 `반드시 session_report 도구를 호출해서 답해.`,
             },
           ],
@@ -612,10 +946,19 @@
     const cached = data[STORAGE_KEYS.SESSION_REPORT];
 
     if (!force && cached?.sessionId === session.sessionId && cached.report) {
+      const cachedEvidence = buildEvidenceReport(purpose, log, session, {
+        totalLogs: log.length + invalidLogs,
+        invalidLogs,
+        completionResult: completionCheck.value,
+      });
       return {
         ok: true,
         status: AI_REQUEST_STATUS.SUCCESS,
-        report: normalizeReport(cached.report),
+        report: mergeReportWithEvidence(
+          normalizeReport(cached.report, log),
+          cachedEvidence,
+          log.map((entry) => entry.title)
+        ),
         generatedAt: cached.generatedAt,
         cached: true,
       };
@@ -645,6 +988,7 @@
     const evidenceReport = buildEvidenceReport(purpose, log, session, {
       totalLogs: log.length + invalidLogs,
       invalidLogs,
+      completionResult: completionCheck.value,
     });
     const reportInput = {
       sessionId: session.sessionId,
@@ -659,6 +1003,8 @@
       sourceStats: evidenceReport.sourceStats,
       timeline: evidenceReport.timeline,
       dataQuality: evidenceReport.dataQuality,
+      hasActualDeviation: evidenceReport.hasActualDeviation,
+      evidence: evidenceReport.evidence,
     };
 
     // [핵심] AI 호출 실패(네트워크/타임아웃/인증/한도초과/응답형식 오류)는 여기서만 잡아서
@@ -747,12 +1093,15 @@
 
   const api = Object.freeze({
     ANALYZABLE_ACTIONS,
+    deriveHasActualDeviation,
     normalizeReport,
     buildEvidenceReport,
     buildTimeline,
     buildTimeStats,
     buildSourceStats,
     buildDataQuality,
+    isUsableDwell,
+    formatDuration,
     sanitizeAiReportByTitles,
     mergeReportWithEvidence,
     generateSessionReport,

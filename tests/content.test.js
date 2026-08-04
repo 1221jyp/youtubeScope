@@ -440,6 +440,14 @@ function testNextSessionRulesView() {
 
   context.JJG_REPORT_VIEW.renderReport(container, {
     summary: "요약",
+    hasActualDeviation: false,
+    stats: {
+      watched: 1,
+      approvedReason: 0,
+      wentBack: 1,
+      blocked: 1,
+      actualDeviations: 0,
+    },
     timeline: [
       {
         title: '<img src=x onerror="globalThis.attacked=true">',
@@ -465,12 +473,61 @@ function testNextSessionRulesView() {
     },
     sourceStats: [{ source: "search", count: 1, actualDeviations: 0 }],
     dataQuality: { warnings: ["일부 영상의 체류시간을 측정하지 못했습니다."] },
+    analysis: {
+      focusAnalysis: { summary: "측정된 기록을 중심으로 집중 흐름을 분석했습니다." },
+      preventionAnalysis: { summary: "돌아가기로 실제 이탈을 방지했습니다." },
+    },
   });
-  assert.match(allText(container), /약 4분/);
-  assert.match(allText(container), /체류시간 측정 불가/);
-  assert.match(allText(container), /이동 원인 불명/);
-  assert.match(allText(container), /<img src=x/);
+  const noDeviationText = allText(container);
+  assert.match(noDeviationText, /약 4분/);
+  assert.match(noDeviationText, /체류시간 측정 불가/);
+  assert.match(noDeviationText, /이동 원인 불명/);
+  assert.match(noDeviationText, /<img src=x/);
+  assert.match(noDeviationText, /이번 세션에서는 확인된 실제 이탈이 없습니다/);
+  assert.match(noDeviationText, /집중 흐름 분석/);
+  assert.match(noDeviationText, /돌아가기로 실제 이탈을 방지/);
+  assert.doesNotMatch(noDeviationText, /첫 이탈 지점/);
+  assert.doesNotMatch(noDeviationText, /주요 이탈 경로/);
+  assert.doesNotMatch(noDeviationText, /실제 이탈 분석/);
   assert.equal(allTags(container).includes("IMG"), false);
+
+  for (const stats of [
+    { approvedReason: 1, actualDeviations: 0 },
+    { wentBack: 1, actualDeviations: 0 },
+    { blocked: 1, skipped: 1, actualDeviations: 0 },
+  ]) {
+    context.JJG_REPORT_VIEW.renderReport(container, {
+      summary: "실제 이탈이 아닌 기록",
+      hasActualDeviation: false,
+      stats,
+    });
+    const actionOnlyText = allText(container);
+    assert.doesNotMatch(actionOnlyText, /첫 이탈 지점/);
+    assert.doesNotMatch(actionOnlyText, /주요 이탈 경로/);
+  }
+
+  context.JJG_REPORT_VIEW.renderReport(container, {
+    summary: "실제 이탈이 있는 세션",
+    hasActualDeviation: true,
+    stats: { actualDeviations: 1 },
+    firstDeviation: {
+      title: "개발자 브이로그",
+      reason: "목적과 무관",
+      dwellMs: 180000,
+      timeMeasurement: "estimated",
+      navigationSource: "recommendation",
+    },
+    diversionPath: ["해시테이블 강의", "개발자 브이로그"],
+    analysis: {
+      deviationAnalysis: { summary: "이번 세션에서 한 번의 실제 이탈이 확인되었습니다." },
+    },
+  });
+  const deviationText = allText(container);
+  assert.match(deviationText, /첫 이탈 지점/);
+  assert.match(deviationText, /주요 이탈 경로/);
+  assert.match(deviationText, /해시테이블 강의.*개발자 브이로그/);
+  assert.match(deviationText, /실제 이탈 분석/);
+  assert.match(deviationText, /약 3분/);
 
   const viewSource = fs.readFileSync("shared/report-view.js", "utf8");
   const modalSource = fs.readFileSync("content/report-modal.js", "utf8");

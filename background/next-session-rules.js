@@ -7,6 +7,8 @@
     STORAGE_KEYS,
     SESSION_STATUS,
     LOG_ACTIONS,
+    TIME_MEASUREMENTS,
+    NAVIGATION_SOURCES,
     normalizeNextSessionRules,
     normalizeLogEntry,
     normalizeCompletionResult,
@@ -18,6 +20,17 @@
   const TIMEOUT_MS = 90000;
   const MAX_RULES = 3;
   const inFlight = new Map();
+  const SOURCE_LABELS = Object.freeze({
+    search: "검색",
+    recommendation: "추천 영상",
+    home: "홈",
+    subscriptions: "구독",
+    playlist: "재생목록",
+    shorts: "Shorts",
+    history: "기록",
+    external: "외부 진입",
+    direct: "직접 진입",
+  });
 
   const RULES_TOOL = {
     name: "next_session_rules",
@@ -78,8 +91,26 @@
     return textOrEmpty(entry.title) || "(제목 없음)";
   }
 
+  function usableDwell(entry) {
+    return (
+      Number.isFinite(Number(entry?.dwellMs)) && Number(entry.dwellMs) >= 0 &&
+      [TIME_MEASUREMENTS.MEASURED, TIME_MEASUREMENTS.ESTIMATED].includes(entry.timeMeasurement)
+    );
+  }
+
+  function formatDuration(ms, estimated = false) {
+    const seconds = Math.floor(Number(ms) / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    const text = minutes > 0
+      ? `${minutes}분${remainder ? ` ${remainder}초` : ""}`
+      : `${seconds}초`;
+    return estimated ? `약 ${text}` : text;
+  }
+
   function buildEvidenceFacts(log) {
     const facts = [];
+    const sourceTotals = new Map();
     for (const entry of log) {
       const title = evidenceTitle(entry);
       const initialReason = textOrEmpty(entry.initialVerdict?.reason);
@@ -110,9 +141,32 @@
             initialReason ? ` 초기 판정 근거: ${initialReason}` : ""
           }`
         );
+      } else if (entry.action === LOG_ACTIONS.WATCHED && usableDwell(entry)) {
+        facts.push(
+          `${title} 페이지는 목표 관련 영상이며 체류시간이 ${formatDuration(
+            entry.dwellMs,
+            entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED
+          )}으로 기록됨.`
+        );
       }
-      // skipped는 AI 장애, watched는 정상 시청이므로 규칙 제안 증거로 만들지 않는다.
+      if (usableDwell(entry) && entry.navigation?.source !== NAVIGATION_SOURCES.UNKNOWN) {
+        const source = entry.navigation?.source;
+        const current = sourceTotals.get(source) || { count: 0, dwellMs: 0, estimated: false };
+        current.count += 1;
+        current.dwellMs += Number(entry.dwellMs);
+        current.estimated ||= entry.timeMeasurement === TIME_MEASUREMENTS.ESTIMATED;
+        sourceTotals.set(source, current);
+      }
+      // skipped는 AI 장애이므로 맞춤 조언 증거로 만들지 않는다.
     }
+    sourceTotals.forEach((stat, source) => {
+      facts.push(
+        `${SOURCE_LABELS[source] || source} 경로로 진입한 영상 ${stat.count}개의 측정된 페이지 체류시간 합계가 ${formatDuration(
+          stat.dwellMs,
+          stat.estimated
+        )}으로 기록됨.`
+      );
+    });
     return [...new Set(facts)];
   }
 

@@ -346,8 +346,10 @@ async function run() {
     );
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
     assert.equal(response.ok, true);
+    assert.equal(response.report.hasActualDeviation, false);
     assert.equal(response.report.firstDeviation.title, "");
     assert.deepEqual(Array.from(response.report.diversionPath), []);
+    assert.equal(response.report.analysis.deviationAnalysis, null);
   }
 
   {
@@ -418,7 +420,13 @@ async function run() {
       "개발자 브이로그",
     ]);
     assert.equal(response.report.stats.actualDeviations, 1);
+    assert.equal(response.report.hasActualDeviation, true);
     assert.equal(response.report.stats.leftAnyway, 1);
+    assert.equal(response.report.firstDeviation.entryId, "entry-b");
+    assert.equal(response.report.firstDeviation.dwellMs, 400);
+    assert.equal(response.report.firstDeviation.timeMeasurement, "measured");
+    assert.equal(response.report.firstDeviation.navigationSource, "recommendation");
+    assert.equal(response.report.firstDeviation.evidenceId, "log:entry-b");
     assert.equal(response.report.timeStats.trackedDwellMs, 700);
     assert.equal(response.report.timeStats.focusedDwellMs, 300);
     assert.equal(response.report.timeStats.deviationDwellMs, 400);
@@ -435,6 +443,9 @@ async function run() {
     assert.equal(response.report.timeline[1].fromEntryId, "entry-a");
     assert.match(timeReportPrompt, /영상 페이지 체류시간/);
     assert.match(timeReportPrompt, /코드 계산 이동 원인 통계/);
+    assert.match(timeReportPrompt, /코드 생성 증거/);
+    assert.match(timeReportPrompt, /코드 확정 실제 이탈 여부: true/);
+    assert.match(timeReportPrompt, /left_anyway가 없으면 첫 이탈 지점·이탈 경로·이탈 분석을 작성하지 않고/);
     assert.match(timeReportPrompt, /unknown 이동 원인을 추측하지 않고/);
     assert.equal(harness.storage.jjg_session_report.sessionId, 100);
     assert.equal(harness.storage.jjg_next_session_rules, null);
@@ -454,11 +465,11 @@ async function run() {
     const harness = createHarness(baseStorage([]));
     const reportApi = harness.context.JJG_REPORT;
     const logs = [
-      { title: "관련", action: "watched", dwellMs: 100, navigation: { source: "search" } },
-      { title: "승인", action: "approved_reason", dwellMs: 200, navigation: { source: "search" } },
-      { title: "이탈", action: "left_anyway", dwellMs: 300, navigation: { source: "recommendation" } },
-      { title: "복귀", action: "went_back", dwellMs: 400, navigation: { source: "recommendation" } },
-      { title: "차단", action: "blocked", dwellMs: 500, navigation: { source: "unknown" } },
+      { title: "관련", action: "watched", dwellMs: 100, timeMeasurement: "measured", navigation: { source: "search" } },
+      { title: "승인", action: "approved_reason", dwellMs: 200, timeMeasurement: "measured", navigation: { source: "search" } },
+      { title: "이탈", action: "left_anyway", dwellMs: 300, timeMeasurement: "measured", navigation: { source: "recommendation" } },
+      { title: "복귀", action: "went_back", dwellMs: 400, timeMeasurement: "measured", navigation: { source: "recommendation" } },
+      { title: "차단", action: "blocked", dwellMs: 500, timeMeasurement: "measured", navigation: { source: "unknown" } },
       { title: "건너뜀", action: "skipped", dwellMs: null, navigation: { source: "unknown" } },
     ];
     const timeStats = reportApi.buildTimeStats({ startedAt: 0, endedAt: 2000 }, logs);
@@ -472,6 +483,80 @@ async function run() {
     assert.equal(sourceStats.find((item) => item.source === "search").count, 2);
     assert.equal(sourceStats.find((item) => item.source === "recommendation").actualDeviations, 1);
     assert.equal(sourceStats.find((item) => item.source === "unknown").actualDeviations, 0);
+    assert.equal(sourceStats.find((item) => item.source === "search").timedEntries, 2);
+
+    const noDeviation = reportApi.buildEvidenceReport("공부", [
+      {
+        ts: 1, title: "강의", action: "watched", dwellMs: 60000,
+        timeMeasurement: "measured", navigation: { source: "search" },
+      },
+      {
+        ts: 2, title: "후기", action: "approved_reason", dwellMs: 30000,
+        timeMeasurement: "estimated", navigation: { source: "recommendation" },
+      },
+      {
+        ts: 3, title: "브이로그", action: "went_back", dwellMs: null,
+        timeMeasurement: "unknown", navigation: { source: "recommendation" },
+      },
+      {
+        ts: 4, title: "쇼핑", action: "blocked", dwellMs: null,
+        timeMeasurement: "unknown", navigation: { source: "home" },
+      },
+      {
+        ts: 5, title: "판정 실패", action: "skipped", dwellMs: 999999,
+        timeMeasurement: "unknown", navigation: { source: "unknown" },
+      },
+    ], { startedAt: 0, endedAt: 180000 }, {
+      completionResult: { status: "partial" },
+    });
+    assert.equal(noDeviation.hasActualDeviation, false);
+    assert.equal(noDeviation.firstDeviation.title, "");
+    assert.deepEqual(Array.from(noDeviation.diversionPath), []);
+    assert.equal(noDeviation.stats.actualDeviations, 0);
+    assert.equal(noDeviation.timeStats.trackedDwellMs, 90000);
+    assert.equal(noDeviation.timeStats.focusedDwellMs, 90000);
+    assert.equal(noDeviation.analysis.deviationAnalysis, null);
+    assert.match(noDeviation.analysis.preventionAnalysis.summary, /돌아가기로 이탈을 방지/);
+    assert.match(noDeviation.analysis.preventionAnalysis.summary, /승인 시청/);
+    assert.match(noDeviation.evidence.map((item) => item.text).join(" "), /약/);
+    assert.doesNotMatch(noDeviation.evidence.map((item) => item.text).join(" "), /실제 시청시간/);
+    const noDeviationEvidenceIds = new Set(noDeviation.evidence.map((item) => item.id));
+    for (const part of Object.values(noDeviation.analysis)) {
+      if (!part || !Array.isArray(part.evidenceIds)) continue;
+      part.evidenceIds.forEach((id) => assert.equal(noDeviationEvidenceIds.has(id), true));
+    }
+
+    const actualDeviation = reportApi.buildEvidenceReport("공부", [
+      { ts: 30, entryId: "after", title: "정상 복귀", action: "watched", navigation: { source: "search" }, timeMeasurement: "unknown" },
+      { ts: 10, entryId: "before", title: "기초 강의", action: "watched", navigation: { source: "search" }, timeMeasurement: "unknown" },
+      { ts: 20, entryId: "first", title: "첫 이탈", action: "left_anyway", dwellMs: 120000, timeMeasurement: "estimated", navigation: { source: "recommendation" }, initialVerdict: { reason: "목적과 무관" } },
+      { ts: 21, entryId: "second", title: "연속 이탈", action: "left_anyway", dwellMs: 60000, timeMeasurement: "measured", navigation: { source: "recommendation" } },
+    ]);
+    assert.equal(actualDeviation.hasActualDeviation, true);
+    assert.equal(actualDeviation.firstDeviation.entryId, "first");
+    assert.equal(actualDeviation.firstDeviation.title, "첫 이탈");
+    assert.equal(actualDeviation.firstDeviation.dwellMs, 120000);
+    assert.equal(actualDeviation.firstDeviation.navigationSource, "recommendation");
+    assert.deepEqual(Array.from(actualDeviation.diversionPath), [
+      "기초 강의", "첫 이탈", "연속 이탈",
+    ]);
+    assert.equal(
+      actualDeviation.evidence.some((item) => item.id === actualDeviation.firstDeviation.evidenceId),
+      true
+    );
+
+    assert.equal(reportApi.deriveHasActualDeviation({
+      stats: { actualDeviations: 0 },
+      firstDeviation: { title: "기존 제목" },
+    }), false);
+    assert.equal(reportApi.deriveHasActualDeviation({
+      firstDeviation: { title: "기존 제목" },
+    }), true);
+    assert.equal(reportApi.deriveHasActualDeviation({}), false);
+    assert.equal(reportApi.deriveHasActualDeviation(
+      { stats: { actualDeviations: 9 } },
+      [{ action: "watched" }]
+    ), false);
     const quality = reportApi.buildDataQuality([
       { timeMeasurement: "unknown", dwellMs: null, navigation: { source: "unknown" } },
     ], {
@@ -481,12 +566,20 @@ async function run() {
     });
     assert.equal(quality.unknownTimeEntries, 1);
     assert.equal(quality.unknownNavigationEntries, 1);
-    assert.match(quality.warnings.join(" "), /전체 세션 시간보다 깁니다/);
+    assert.match(quality.warnings.join(" "), /여러 탭 사용 또는 측정 중복/);
     const emptyTime = reportApi.buildTimeStats({ startedAt: 0, endedAt: 1000 }, [
       { action: "watched", dwellMs: null },
     ]);
     assert.equal(emptyTime.focusedRatio, null);
     assert.equal(emptyTime.deviationRatio, null);
+    const unknownTime = reportApi.buildTimeStats({ startedAt: 0, endedAt: 1000 }, [
+      { action: "watched", dwellMs: 900, timeMeasurement: "unknown" },
+    ]);
+    assert.equal(unknownTime.trackedDwellMs, 0);
+    const overlappingTime = reportApi.buildTimeStats({ startedAt: 0, endedAt: 100 }, [
+      { action: "watched", dwellMs: 200, timeMeasurement: "measured" },
+    ]);
+    assert.equal(overlappingTime.focusedRatio, null);
     assert.equal(reportApi.buildEvidenceReport("공부", []).timeline.length, 0);
     assert.equal(reportApi.buildEvidenceReport("공부", [{
       ts: 1, title: "한 개", action: "watched", navigation: { source: "unknown" },
@@ -512,6 +605,32 @@ async function run() {
     assert.equal(response.ok, true);
     assert.equal(response.report.stats.actualDeviations, 0);
     assert.equal(response.report.stats.wentBack, 1);
+  }
+
+  // 기존 캐시에 이탈 필드가 잘못 남아 있어도 현재 정규화 로그를 최우선으로 재확정한다.
+  {
+    const storage = baseStorage([
+      { title: "해시테이블 강의", action: "watched", related: true },
+      { title: "개발자 브이로그", action: "went_back", related: false },
+    ]);
+    storage.jjg_session_report = {
+      sessionId: 100,
+      generatedAt: 2100,
+      report: {
+        summary: "기존 캐시",
+        firstDeviation: { title: "개발자 브이로그", reason: "과거 형식" },
+        diversionPath: ["해시테이블 강의", "개발자 브이로그"],
+        patterns: [], recommendations: [], encouragement: "",
+      },
+    };
+    const harness = createHarness(storage);
+    const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
+    assert.equal(response.ok, true);
+    assert.equal(response.cached, true);
+    assert.equal(response.report.hasActualDeviation, false);
+    assert.equal(response.report.firstDeviation.title, "");
+    assert.deepEqual(Array.from(response.report.diversionPath), []);
+    assert.equal(harness.fetchCount, 0);
   }
 
   {
@@ -891,6 +1010,38 @@ async function run() {
     assert.deepEqual(Array.from(response.rules), []);
     assert.equal(harness.fetchCount, 0);
     assert.deepEqual(Array.from(harness.storage.jjg_next_session_rules), []);
+  }
+
+  // 목표 관련 영상의 체류시간과 이동 원인은 이탈이 없어도 맞춤 조언 근거가 된다.
+  {
+    const storage = nextRulesStorage([
+      {
+        videoId: "a",
+        title: "해시테이블 강의",
+        action: "watched",
+        related: true,
+        dwellMs: 840000,
+        timeMeasurement: "measured",
+        navigation: { source: "search" },
+      },
+      { videoId: "b", title: "판정 실패", action: "skipped", related: true },
+    ]);
+    const evidence =
+      "해시테이블 강의 페이지는 목표 관련 영상이며 체류시간이 14분으로 기록됨.";
+    const harness = createHarness(storage);
+    let prompt = "";
+    harness.setFetch(async (_url, options) => {
+      prompt = JSON.parse(options.body).contents[0].parts[0].text;
+      return geminiRulesResponse([{
+        rule: "다음 세션에서도 검색으로 목표 관련 강의를 먼저 찾아보세요.",
+        evidence,
+      }]);
+    });
+    const response = await harness.send({ type: "GENERATE_NEXT_SESSION_RULES" });
+    assert.equal(response.ok, true);
+    assert.equal(response.rules.length, 1);
+    assert.equal(response.rules[0].evidence, evidence);
+    assert.match(prompt, /검색 경로로 진입한 영상 1개의 측정된 페이지 체류시간 합계가 14분/);
   }
 
   // action 의미, evidence exact match, 일반 조언, 중복, 최대 3개를 함께 검증한다.

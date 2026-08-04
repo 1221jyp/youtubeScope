@@ -66,7 +66,7 @@
     return estimated ? `약 ${value}` : value;
   }
 
-  function renderTimeSummary(container, timeStats) {
+  function renderTimeSummary(container, timeStats, dataQuality = null) {
     if (!timeStats || typeof timeStats !== "object") return;
     const section = document.createElement("section");
     section.className = "jjg-report-section jjg-time-summary";
@@ -75,16 +75,56 @@
       ["세션 시간", timeStats.sessionDurationMs],
       ["측정된 영상 체류시간", timeStats.trackedDwellMs],
       ["목표 관련 체류시간", timeStats.focusedDwellMs],
-      ["실제 이탈 체류시간", timeStats.deviationDwellMs],
+      ["이유 승인 영상 체류시간", timeStats.approvedDwellMs],
       ["측정되지 않은 시간", timeStats.untrackedMs],
     ];
+    if (Number(timeStats.deviationDwellMs) > 0) {
+      rows.splice(4, 0, ["실제 이탈 영상 체류시간", timeStats.deviationDwellMs]);
+    }
+    const measuredEntries = Number(dataQuality?.measuredTimeEntries) || 0;
+    const estimatedEntries = Number(dataQuality?.estimatedTimeEntries) || 0;
+    const hasKnownTime = dataQuality == null || measuredEntries + estimatedEntries > 0;
     rows.forEach(([label, value]) => {
       const row = document.createElement("div");
       row.className = "jjg-report-metric";
       appendTextElement(row, "span", "jjg-report-metric-label", label);
-      appendTextElement(row, "span", "jjg-report-metric-value", formatDuration(value));
+      const dependsOnMeasuredEntries = label !== "세션 시간" && label !== "측정되지 않은 시간";
+      appendTextElement(
+        row,
+        "span",
+        "jjg-report-metric-value",
+        dependsOnMeasuredEntries && !hasKnownTime
+          ? "측정 불가"
+          : formatDuration(value, {
+              estimated: dependsOnMeasuredEntries && estimatedEntries > 0,
+            })
+      );
       section.appendChild(row);
     });
+    container.appendChild(section);
+  }
+
+  function renderCoreStats(container, report) {
+    const stats = report?.stats || {};
+    const section = document.createElement("section");
+    section.className = "jjg-report-section jjg-core-stats";
+    appendTextElement(section, "h3", "", "핵심 통계");
+    const actual = Number(stats.actualDeviations) || 0;
+    appendTextElement(
+      section,
+      "p",
+      actual ? "jjg-deviation-found" : "jjg-no-deviation",
+      actual
+        ? `이번 세션에서 실제 이탈 ${actual}회가 확인되었습니다.`
+        : "이번 세션에서는 확인된 실제 이탈이 없습니다."
+    );
+    appendTextElement(
+      section,
+      "p",
+      "",
+      `관련 시청 ${Number(stats.watched) || 0}개 · 이유 승인 ${Number(stats.approvedReason) || 0}개 · ` +
+        `돌아가기로 방지 ${Number(stats.wentBack) || 0}회 · 차단 ${Number(stats.blocked) || 0}회`
+    );
     container.appendChild(section);
   }
 
@@ -99,7 +139,13 @@
         list,
         "li",
         "",
-        `${SOURCE_LABELS[item?.source] || SOURCE_LABELS.unknown} ${Number(item?.count) || 0}개 · 이탈 ${Number(item?.actualDeviations) || 0}회`
+        `${SOURCE_LABELS[item?.source] || SOURCE_LABELS.unknown} ${Number(item?.count) || 0}개 · ` +
+          `${Number(item?.timedEntries) > 0
+            ? `측정된 체류시간 ${formatDuration(Number(item?.dwellMs) || 0, {
+                estimated: Number(item?.estimatedEntries) > 0,
+              })}`
+            : "체류시간 측정 불가"} · ` +
+          `실제 이탈 ${Number(item?.actualDeviations) || 0}회`
       );
     });
     section.appendChild(list);
@@ -107,7 +153,10 @@
   }
 
   function renderTimeline(container, timeline) {
-    if (!Array.isArray(timeline) || timeline.length === 0) return;
+    if (!Array.isArray(timeline) || timeline.length === 0) {
+      addSection(container, "시청 흐름 타임라인", "기록된 영상 이동 흐름이 없습니다.");
+      return;
+    }
     const section = document.createElement("section");
     section.className = "jjg-report-section jjg-report-timeline";
     appendTextElement(section, "h3", "", "시청 흐름 타임라인");
@@ -128,7 +177,7 @@
         "jjg-timeline-title",
         `[${SOURCE_LABELS[item?.navigationSource] || SOURCE_LABELS.unknown}] ${item?.title || "(제목 없음)"}`
       );
-      const dwellText = item?.dwellMs == null
+      const dwellText = item?.dwellMs == null || item?.timeMeasurement === "unknown"
         ? "체류시간 측정 불가"
         : `체류 ${formatDuration(item.dwellMs, { estimated: item.timeMeasurement === "estimated" })}`;
       appendTextElement(
@@ -144,34 +193,74 @@
 
   function renderDataQuality(container, dataQuality) {
     const warnings = Array.isArray(dataQuality?.warnings) ? dataQuality.warnings : [];
-    if (warnings.length === 0) return;
-    addList(container, "데이터 품질 안내", warnings);
+    addList(
+      container,
+      "데이터 품질 안내",
+      [
+        "체류시간은 실제 영상 재생시간이 아니라 영상 페이지에 머문 시간을 뜻합니다.",
+        ...warnings,
+      ]
+    );
+  }
+
+  function reportHasActualDeviation(report) {
+    if (typeof report?.hasActualDeviation === "boolean") return report.hasActualDeviation;
+    if (Number.isFinite(Number(report?.stats?.actualDeviations))) {
+      return Number(report.stats.actualDeviations) > 0;
+    }
+    return Boolean(report?.firstDeviation?.title);
+  }
+
+  function renderAnalysis(container, heading, analysisPart, always = false) {
+    const summary = analysisPart?.summary;
+    if (!summary) {
+      if (always) addSection(container, heading, "현재 리포트에는 이 분석이 포함되지 않았습니다.");
+      return;
+    }
+    addSection(container, heading, summary);
   }
 
   // container의 기존 내용을 비우고 리포트를 그린다.
   function renderReport(container, report) {
     container.replaceChildren();
     addSection(container, "세션 요약", report?.summary, true);
-
-    const first = report?.firstDeviation;
-    const firstText =
-      first?.title || first?.reason
-        ? [first.title, first.reason].filter(Boolean).join(" — ")
-        : "이번 세션에서는 확인된 이탈이 없습니다.";
-    addSection(container, "첫 이탈 지점", firstText, true);
-
-    const path = Array.isArray(report?.diversionPath) ? report.diversionPath.filter(Boolean) : [];
-    addSection(
-      container,
-      "주요 이탈 경로",
-      path.length ? path.join(" → ") : "표시할 이탈 경로가 없습니다."
-    );
-    addList(container, "발견된 패턴", report?.patterns);
-    addList(container, "AI의 추가 제안", report?.recommendations);
-    addSection(container, "AI 마무리 메시지", report?.encouragement);
-    renderTimeSummary(container, report?.timeStats);
+    renderAnalysis(container, "목표 달성 결과", report?.analysis?.goalAssessment, true);
+    renderCoreStats(container, report);
+    renderTimeSummary(container, report?.timeStats, report?.dataQuality);
+    renderAnalysis(container, "체류시간 분석", report?.analysis?.timeAnalysis, true);
     renderSourceStats(container, report?.sourceStats);
+    renderAnalysis(container, "이동 원인 분석", report?.analysis?.sourceAnalysis, true);
     renderTimeline(container, report?.timeline);
+    renderAnalysis(container, "집중 흐름 분석", report?.analysis?.focusAnalysis, true);
+    renderAnalysis(container, "집중 유지·이탈 방지 분석", report?.analysis?.preventionAnalysis, true);
+
+    if (reportHasActualDeviation(report)) {
+      const first = report?.firstDeviation;
+      const firstDetails = [first?.title, first?.reason].filter(Boolean);
+      if (first?.dwellMs != null && first?.timeMeasurement !== "unknown") {
+        firstDetails.push(
+          `체류 ${formatDuration(first.dwellMs, {
+            estimated: first.timeMeasurement === "estimated",
+          })}`
+        );
+      }
+      if (first?.navigationSource) {
+        firstDetails.push(SOURCE_LABELS[first.navigationSource] || SOURCE_LABELS.unknown);
+      }
+      addSection(container, "첫 이탈 지점", firstDetails.join(" — "), true);
+      const path = Array.isArray(report?.diversionPath)
+        ? report.diversionPath.filter(Boolean) : [];
+      if (path.length) addSection(container, "주요 이탈 경로", path.join(" → "));
+      renderAnalysis(container, "실제 이탈 분석", report?.analysis?.deviationAnalysis);
+    }
+
+    if (Array.isArray(report?.patterns) && report.patterns.length) {
+      addList(container, "판정·선택 기록 분석", report.patterns);
+    }
+    if (Array.isArray(report?.recommendations) && report.recommendations.length) {
+      addList(container, "AI의 추가 제안", report.recommendations);
+    }
+    if (report?.encouragement) addSection(container, "마무리", report.encouragement);
     renderDataQuality(container, report?.dataQuality);
   }
 
@@ -222,9 +311,11 @@
     renderReport,
     formatDuration,
     renderTimeSummary,
+    renderCoreStats,
     renderSourceStats,
     renderTimeline,
     renderDataQuality,
+    reportHasActualDeviation,
     renderNextSessionRules,
   });
 

@@ -238,9 +238,35 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 - `untrackedMs`: `max(0, sessionDurationMs - trackedDwellMs)`
 - `focusedRatio`, `deviationRatio`: 추적 시간이 0이면 `null`, 아니면 각각 추적 시간 대비 비율
 
-`sourceStats`는 실제로 존재하는 source별로 진입 수, 유효한 체류시간 합계, `left_anyway` 수만 집계한다. `approved_reason`, `went_back`, `blocked`, `skipped`는 실제 이탈 수에 포함하지 않는다. `unknown`도 데이터가 있으면 별도 집계한다.
+시간 합계에는 `dwellMs`가 유효하고 `timeMeasurement`가 `measured` 또는 `estimated`인
+기록만 포함한다. `unknown`은 값이 있더라도 시간 분석에서 제외한다. `estimated`가 포함된
+증거는 화면과 AI 프롬프트에서 “약”으로 표시한다. 체류시간 합계가 세션 시간보다 길면 여러
+탭 또는 중복 측정 가능성을 안내하고 비율은 `null`로 둔다. `dwellMs`는 실제 영상 재생시간이
+아니라 영상 페이지에 머문 시간이다.
+
+`sourceStats`는 실제로 존재하는 source별로 진입 수, 유효한 체류시간 합계, 시간 측정 항목 수
+(`timedEntries`), 추정 항목 수(`estimatedEntries`), `left_anyway` 수만 집계한다. `approved_reason`, `went_back`, `blocked`,
+`skipped`는 실제 이탈 수에 포함하지 않는다. `unknown`도 데이터가 있으면 별도 집계한다.
 
 `timeline`의 제목, 시간, action, 이동 원인은 정규화된 실제 로그에서 코드로 만들며 AI 응답으로 교체하지 않는다. `dataQuality`에는 시간·이동 원인 미측정과 세션 시간보다 긴 중첩 체류시간 등의 제한을 기록한다.
+
+### 실제 이탈과 증거 중심 분석
+
+실제 이탈은 정규화된 현재 세션 로그의 `left_anyway`만 코드에서 집계한다.
+`approved_reason`, `went_back`, `blocked`, `skipped`, `watched`는 실제 이탈이 아니다.
+
+- `hasActualDeviation`: `left_anyway`가 하나 이상이면 `true`
+- `stats.actualDeviations`: `left_anyway` 개수
+- `firstDeviation`: 실제 이탈이 있을 때 최초 `left_anyway` 로그의 제목·체류시간·이동 원인
+- `diversionPath`: 실제 이탈 직전 로그 최대 2개와 최초/연속 `left_anyway`의 실제 제목
+- `evidence`: 코드가 계산한 시간·이동 원인·이탈 방지 증거와 고유 ID
+- `analysis`: 증거 ID를 연결한 집중·시간·이동 원인·방지·이탈·목표 달성 분석
+
+실제 이탈이 없으면 `firstDeviation`은 빈 호환 객체, `diversionPath`는 `[]`,
+`deviationAnalysis`는 `null`이다. 화면에서는 첫 이탈 지점·주요 이탈 경로·실제 이탈 분석
+섹션을 만들지 않는다. 기존 캐시에 `hasActualDeviation`이 없으면
+`stats.actualDeviations`, 첫 이탈 제목, `false` 순서로 복원하며, 현재 세션 로그가 있으면
+로그의 `left_anyway` 여부를 최우선으로 사용한다.
 
 ## 목표 달성 결과
 
