@@ -422,14 +422,21 @@ function testNextSessionRulesView() {
   ]);
 
   const text = allText(container);
-  assert.match(text, /다음 세션 규칙/);
+  assert.match(text, /다음 세션 맞춤 조언/);
+  assert.match(text, /자동으로 적용되지 않습니다/);
+  assert.match(text, /조언/);
   assert.match(text, /<img src=x/);
-  assert.match(text, /근거: <script>/);
+  assert.match(text, /근거/);
+  assert.match(text, /<script>/);
+  assert.doesNotMatch(text, /다음 세션 규칙/);
   assert.equal(context.attacked, undefined);
   assert.equal(allTags(container).some((tag) => ["IMG", "SCRIPT"].includes(tag)), false);
 
   context.JJG_REPORT_VIEW.renderNextSessionRules(container, []);
-  assert.match(allText(container), /이번 세션에서는 제안할 구체적인 규칙이 없습니다\./);
+  assert.match(
+    allText(container),
+    /이번 세션에서는 제안할 만큼 구체적인 행동 근거가 없습니다\./
+  );
 
   context.JJG_REPORT_VIEW.renderReport(container, {
     summary: "요약",
@@ -468,9 +475,15 @@ function testNextSessionRulesView() {
   const viewSource = fs.readFileSync("shared/report-view.js", "utf8");
   const modalSource = fs.readFileSync("content/report-modal.js", "utf8");
   const popupSource = fs.readFileSync("popup/popup.js", "utf8");
+  const contentCss = fs.readFileSync("content/content.css", "utf8");
+  const popupHtml = fs.readFileSync("popup/popup.html", "utf8");
   assert.doesNotMatch(viewSource, /\.innerHTML\s*=/);
   assert.match(modalSource, /renderNextSessionRules/);
   assert.match(popupSource, /renderNextSessionRules/);
+  assert.match(modalSource, /다음 세션 맞춤 조언을 준비하고 있어요/);
+  assert.match(popupSource, /다음 세션 맞춤 조언을 준비하고 있어요/);
+  assert.match(modalSource, /기존 세션 리포트는 정상적으로 확인할 수 있습니다/);
+  assert.match(popupSource, /기존 세션 리포트는 정상적으로 확인할 수 있습니다/);
   assert.match(modalSource, /renderReport\(body, response\.report\)/);
   assert.match(popupSource, /JJG_REPORT_VIEW\.renderReport/);
   assert.doesNotMatch(modalSource, /renderTimeline|renderTimeSummary|renderSourceStats/);
@@ -480,11 +493,24 @@ function testNextSessionRulesView() {
     /if \(Array\.isArray\(storedRules\)\) \{\s*renderRules\(storedRules\);\s*\} else if \(storedRules == null\) \{\s*requestRules\(\);/
   );
   assert.doesNotMatch(popupSource, /storedRules\.length/);
+  assert.match(contentCss, /\.jjg-report-modal\s*\{[^}]*width:\s*900px/s);
+  assert.match(contentCss, /#jjg-report-modal-body\s*\{[^}]*max-height:\s*72vh/s);
+  assert.match(popupHtml, /body\s*\{[^}]*width:\s*560px/s);
+  assert.match(popupHtml, /#jjg-report-output\s*\{[^}]*max-height:\s*500px/s);
   assert.ok(
     modalSource.indexOf("renderReport(body") <
       modalSource.lastIndexOf("loadNextSessionRules(backdrop)"),
-    "기존 리포트를 먼저 표시한 뒤 규칙을 별도로 생성해야 한다"
+    "기존 리포트를 먼저 표시한 뒤 맞춤 조언을 별도로 생성해야 한다"
   );
+
+  const schemaSource = fs.readFileSync("shared/schema.js", "utf8");
+  const rulesSource = fs.readFileSync("background/next-session-rules.js", "utf8");
+  assert.match(schemaSource, /NEXT_SESSION_RULES/);
+  assert.match(schemaSource, /function normalizeNextSessionRules/);
+  assert.match(rulesSource, /GENERATE_NEXT_SESSION_RULES|NEXT_SESSION_RULES/);
+  assert.match(rulesSource, /JJG_NEXT_SESSION_RULES/);
+  assert.match(rulesSource, /item\?\.rule|candidate\.rule/);
+  assert.match(rulesSource, /evidence/);
 }
 
 async function testDwellTrackerAndNavigation() {
@@ -585,6 +611,14 @@ async function testDwellTrackerAndNavigation() {
   assert.equal(logs.get(entryB.entryId).dwellMs, 5000);
   assert.ok(clearCount >= 1);
 
+  session = { sessionId: 1, status: "active" };
+  clock = 27000;
+  await tracker.resumeAfterEndingCancel();
+  assert.equal(tracker.getState().active.entryId, entryB.entryId);
+  clock = 28000;
+  await tracker.checkpoint();
+  assert.equal(logs.get(entryB.entryId).dwellMs, 7000);
+
   session = { sessionId: 2, status: "active" };
   videoId = "a";
   clock = 30000;
@@ -593,6 +627,190 @@ async function testDwellTrackerAndNavigation() {
   assert.notEqual(revisitedA.entryId, entryA.entryId);
   assert.equal(revisitedA.sessionId, 2);
   assert.equal(revisitedA.navigation.fromEntryId, "");
+}
+
+function createPurposeChangeHarness() {
+  const document = createInteractiveDocument();
+  const startedAt = Date.now() - 10000;
+  const storage = {
+    jjg_purpose: "해시테이블 공부",
+    jjg_session_id: startedAt,
+    jjg_session_status: "active",
+    jjg_session_started_at: startedAt,
+    jjg_session_ended_at: null,
+    jjg_session_log: [{ entryId: "existing", action: "watched" }],
+    jjg_completion_result: null,
+  };
+  const events = [];
+  let completionOptions = null;
+  let reportOptions = null;
+  const context = vm.createContext({ console, document, Date, location: { href: "https://www.youtube.com/" }, history: { length: 1 } });
+  context.globalThis = context;
+  vm.runInContext(fs.readFileSync("shared/schema.js", "utf8"), context, {
+    filename: "shared/schema.js",
+  });
+  context.JJG_STORAGE = {
+    async get(keys) {
+      const result = {};
+      keys.forEach((key) => { result[key] = storage[key]; });
+      return result;
+    },
+    async set(values) {
+      Object.assign(storage, values);
+      return true;
+    },
+  };
+  context.JJG_DWELL_TRACKER = {
+    async finalizeCurrent() { events.push("dwell_finalized"); },
+    async resumeAfterEndingCancel() { events.push("dwell_resumed"); },
+    async resetForSession() {},
+  };
+  context.JJG_COMPLETION = {
+    async askCompletion(options) {
+      completionOptions = options;
+      events.push("completion_opened");
+      return true;
+    },
+  };
+  context.JJG_REPORT_MODAL = {
+    async show(options) {
+      reportOptions = options;
+      events.push("report_opened");
+    },
+  };
+  context.JJG_UI = { escapeHtml: (value) => String(value) };
+  context.JJG_MESSAGING = { async sendMessageWithTimeout() { return { ok: false }; } };
+  context.JJG_SHORTS_BLOCK = {
+    async syncShortsUiVisibility() {},
+    isShortsUrl() { return false; },
+  };
+  context.JJG_JUDGE_FLOW = { handleWatchPage() {} };
+  vm.runInContext(fs.readFileSync("content/session.js", "utf8"), context, {
+    filename: "content/session.js",
+  });
+  return {
+    context,
+    document,
+    storage,
+    events,
+    get completionOptions() { return completionOptions; },
+    get reportOptions() { return reportOptions; },
+  };
+}
+
+async function testPurposeChangeFlow() {
+  const harness = createPurposeChangeHarness();
+  const { context, document, storage, events } = harness;
+
+  const [firstOpen, duplicateOpen] = await Promise.all([
+    context.JJG_SESSION.showPurposeChangePrompt(),
+    context.JJG_SESSION.showPurposeChangePrompt(),
+  ]);
+  assert.equal(firstOpen, true);
+  assert.equal(duplicateOpen, false);
+  const prompt = document.getElementById("jjg-purpose-change-backdrop");
+  assert.ok(prompt);
+  assert.match(allText(prompt), /목적을 변경하기 전에 이번 세션을 정리할까요/);
+  assert.match(allText(prompt), /리포트 생성 후 변경/);
+  assert.match(allText(prompt), /리포트 없이 바로 변경/);
+  assert.equal(storage.jjg_session_status, "active");
+  assert.equal(storage.jjg_session_log.length, 1);
+
+  await document.getElementById("jjg-purpose-change-cancel").click();
+  assert.equal(document.getElementById("jjg-purpose-change-backdrop"), null);
+  assert.equal(storage.jjg_session_status, "active");
+
+  await context.JJG_SESSION.showPurposeChangePrompt();
+  const reportButton = document.getElementById("jjg-change-with-report");
+  await reportButton.click();
+  assert.equal(storage.jjg_session_status, "ending");
+  assert.equal(storage.jjg_session_log.length, 1);
+  assert.deepEqual(events.slice(0, 2), ["dwell_finalized", "completion_opened"]);
+  await reportButton.click();
+  assert.equal(events.filter((event) => event === "completion_opened").length, 1);
+
+  assert.equal(await harness.completionOptions.onCancel(), true);
+  assert.equal(storage.jjg_session_status, "active");
+  assert.ok(events.includes("dwell_resumed"));
+
+  await context.JJG_SESSION.showPurposeChangePrompt();
+  await document.getElementById("jjg-change-with-report").click();
+  assert.equal(await harness.completionOptions.onConfirm("partial"), true);
+  assert.equal(storage.jjg_session_status, "ended");
+  assert.equal(storage.jjg_completion_result.status, "partial");
+  assert.equal(storage.jjg_session_log.length, 1);
+  assert.equal(harness.reportOptions.showStartNewPurposeButton, true);
+  assert.equal(typeof harness.reportOptions.onStartNewPurpose, "function");
+
+  const source = fs.readFileSync("content/session.js", "utf8");
+  assert.match(source, /jjg-change-without-report/);
+  assert.match(source, /backdrop\.remove\(\);\s*openPurposeEditor\(\);/);
+  const directHandler = source.match(
+    /directButton\.addEventListener\("click",([\s\S]*?)cancelButton\.addEventListener/
+  )?.[1] || "";
+  assert.doesNotMatch(directHandler, /beginEnding|GENERATE_SESSION_REPORT|JJG_REPORT_MODAL/);
+}
+
+async function testPurposeChangeReportActions() {
+  async function loadReportModal(reportResponse) {
+    const document = createInteractiveDocument();
+    const context = vm.createContext({ console, document, Promise });
+    context.globalThis = context;
+    context.JJG_REPORT_VIEW = {
+      renderReport(container) {
+        const text = document.createElement("p");
+        text.textContent = "기존 세션 리포트";
+        container.appendChild(text);
+      },
+      renderNextSessionRules(container) {
+        const text = document.createElement("p");
+        text.textContent = "다음 세션 맞춤 조언";
+        container.appendChild(text);
+      },
+    };
+    let reportRequests = 0;
+    context.JJG_MESSAGING = {
+      async sendMessageWithTimeout(message) {
+        if (message.type === "GENERATE_SESSION_REPORT") {
+          reportRequests += 1;
+          return reportResponse;
+        }
+        return { ok: true, rules: [] };
+      },
+    };
+    vm.runInContext(fs.readFileSync("content/report-modal.js", "utf8"), context, {
+      filename: "content/report-modal.js",
+    });
+    return {
+      context,
+      document,
+      get reportRequests() { return reportRequests; },
+    };
+  }
+
+  let opened = 0;
+  const success = await loadReportModal({ ok: true, report: { summary: "완료" } });
+  await success.context.JJG_REPORT_MODAL.show({
+    showStartNewPurposeButton: true,
+    onStartNewPurpose: async () => { opened += 1; },
+  });
+  assert.equal(success.document.getElementById("jjg-report-start-new-purpose").textContent, "새 목적 설정하기");
+  assert.match(allText(success.document.body), /기존 세션 리포트/);
+  await success.document.getElementById("jjg-report-start-new-purpose").click();
+  assert.equal(opened, 1);
+
+  const failure = await loadReportModal({ ok: false, error: "실패" });
+  await failure.context.JJG_REPORT_MODAL.show({
+    showStartNewPurposeButton: true,
+    onStartNewPurpose: async () => { opened += 1; },
+  });
+  assert.match(allText(failure.document.body), /현재 기록은 그대로 보관되어 있습니다/);
+  assert.equal(failure.document.getElementById("jjg-report-retry-purpose-change").textContent, "다시 시도");
+  assert.equal(failure.document.getElementById("jjg-report-start-new-purpose").textContent, "리포트 없이 새 목적 설정");
+  await failure.document.getElementById("jjg-report-retry-purpose-change").click();
+  assert.equal(failure.reportRequests, 2);
+  await failure.document.getElementById("jjg-report-start-new-purpose").click();
+  assert.equal(opened, 2);
 }
 
 // 세션 종료 명세의 제약들이 실제로 지켜지는지 검증한다.
@@ -737,6 +955,8 @@ function run() {
     await testCompletionUI();
     testNextSessionRulesView();
     await testDwellTrackerAndNavigation();
+    await testPurposeChangeFlow();
+    await testPurposeChangeReportActions();
     console.log("content script/목표 달성/규칙 렌더링 시나리오 통과");
   })();
 }

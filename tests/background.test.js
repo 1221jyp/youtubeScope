@@ -962,7 +962,7 @@ async function run() {
       prompt = JSON.parse(options.body).contents[0].parts[0].text;
       return geminiRulesResponse([
         {
-          rule: "후기 영상을 열기 전에 현재 목표와 연결되는 이유를 한 문장으로 확인한다.",
+          rule: "후기 영상을 열기 전에 현재 목표와 연결되는 이유를 한 문장으로 확인해보세요.",
           evidence: leftEvidence,
         },
         {
@@ -971,15 +971,15 @@ async function run() {
         },
         { rule: "집중하세요.", evidence: leftEvidence },
         {
-          rule: "이유가 필요한 영상은 시청 목적을 먼저 적고 승인을 확인한다.",
+          rule: "이유가 필요한 영상은 시청 목적을 먼저 적고 승인을 확인해보세요.",
           evidence: approvedEvidence,
         },
         {
-          rule: "후기 영상을 열기 전에 현재 목표와 연결되는 이유를 한 문장으로 확인한다.",
+          rule: "후기 영상을 열기 전에 현재 목표와 연결되는 이유를 한 문장으로 확인해보세요.",
           evidence: leftEvidence,
         },
         {
-          rule: "브이로그 경고가 나오면 이전처럼 돌아가기를 선택한다.",
+          rule: "브이로그 경고가 나오면 이전처럼 돌아가기를 선택해보세요.",
           evidence: backEvidence,
         },
         {
@@ -1006,6 +1006,10 @@ async function run() {
     assert.match(prompt, /AI가 승인해 시청함/);
     assert.match(prompt, /went_back을 선택해 이탈을 방지/);
     assert.match(prompt, /차단되었으며 실제 시청 이탈로는 집계하지 않음/);
+    assert.match(prompt, /실행 가능한 맞춤 조언/);
+    assert.match(prompt, /강제 규칙이 아니라/);
+    assert.match(prompt, /반드시, 무조건, 금지한다/);
+    assert.match(prompt, /자동 차단 정책으로 적용된다고 표현하지 않는다/);
     assert.equal(prompt.includes("AI 장애 영상"), false);
   }
 

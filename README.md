@@ -92,6 +92,11 @@ UI는 두 가지로만 보이고, 스키마의 `SESSION_STATUS` 3상태에 매�
 상태 전이는 전부 [content/session.js](content/session.js)에만 있고, 다른 모듈은 `getSession()`으로 읽기만 한다.
 탭이 여러 개면 [content/main.js](content/main.js)의 `storage.onChanged`가 나머지 탭 버튼을 갱신한다.
 
+active 세션에서 `목적 변경`을 누르면 먼저 현재 기록으로 리포트를 생성할지 선택한다. 리포트 생성 시
+기존 `active → ending → 목표 확인 → ended` 종료 절차를 그대로 사용하고, 리포트 확인 후 새 목적 설정으로
+이어진다. 리포트 없이 변경하더라도 목적 입력이나 AI 구체화를 취소할 수 있으며, 새 목적을 최종 확인해
+`startNewSession()`이 실행되기 전까지 기존 세션 상태와 로그는 유지된다.
+
 ## 데이터 흐름
 
 ```
@@ -137,5 +142,5 @@ popup/popup.js
 - popup 통계 타일이 낡았다: `left_anyway`(이탈 횟수)는 기록하는 코드가 없어 항상 0이고,
   `went_back`(돌아감) 타일은 아예 없다. "총 시청 영상"도 안 본 영상까지 센다
 - 목표 달성 확인([content/completion.js](content/completion.js))은 임시 최소 구현
-- SCHEMA.md에 정의만 되어 있고 아직 구현하지 않은 기능: 목적 AI 구체화(`GOAL_PROFILE`),
-  3단계 판정(`ask_reason`), 다음 세션 규칙
+- 다음 세션 맞춤 조언은 실제 세션 기록에 근거한 참고용 제안이며 자동 차단 정책으로 적용되지 않는다.
+  기존 데이터 호환을 위해 내부 저장 키 `NEXT_SESSION_RULES`와 `rule` 필드명은 유지한다.

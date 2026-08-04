@@ -59,6 +59,14 @@
   width: 440px;
 }
 
+.jjg-purpose-change-modal {
+  width: 480px;
+}
+
+.jjg-purpose-change-description {
+  line-height: 1.65;
+}
+
 .jjg-completion-goal,
 .jjg-completion-condition {
   border-radius: 8px;
@@ -156,13 +164,18 @@
 /* ---------- 종료 후 이탈 리포트 ---------- */
 
 .jjg-report-modal {
-  width: 480px;
+  width: 900px;
+  max-width: 92vw;
+  max-height: 90vh;
+  box-sizing: border-box;
 }
 
 #jjg-report-modal-body {
-  max-height: 55vh;
+  max-height: 72vh;
   overflow-y: auto;
   margin-bottom: 16px;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
 }
 
 .jjg-report-message {
@@ -181,6 +194,16 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.jjg-report-modal-actions {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.jjg-report-modal-actions:empty {
+  display: none;
 }
 
 /* shared/report-view.js가 만드는 섹션 (popup.html의 스타일과 같은 모양) */
@@ -212,6 +235,21 @@
   overflow-wrap: anywhere;
 }
 
+.jjg-report-modal .jjg-report-section h3 {
+  font-size: 15px;
+}
+
+.jjg-report-modal .jjg-report-section p,
+.jjg-report-modal .jjg-report-section ul,
+.jjg-report-modal .jjg-report-section ol,
+.jjg-report-modal .jjg-report-metric,
+.jjg-report-modal .jjg-timeline-title,
+.jjg-report-modal .jjg-timeline-meta,
+.jjg-report-modal .jjg-timeline-arrow {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .jjg-report-section ul,
 .jjg-report-section ol {
   padding-left: 18px;
@@ -220,6 +258,17 @@
 .jjg-next-rule {
   margin-bottom: 3px;
   font-weight: 600;
+}
+
+.jjg-next-advice-description {
+  margin-bottom: 10px !important;
+}
+
+.jjg-next-advice-label {
+  margin-top: 5px;
+  color: #333;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .jjg-next-rule-evidence {

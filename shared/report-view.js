@@ -167,7 +167,7 @@
       path.length ? path.join(" → ") : "표시할 이탈 경로가 없습니다."
     );
     addList(container, "발견된 패턴", report?.patterns);
-    addList(container, "다음 세션 추천", report?.recommendations);
+    addList(container, "AI의 추가 제안", report?.recommendations);
     addSection(container, "AI 마무리 메시지", report?.encouragement);
     renderTimeSummary(container, report?.timeStats);
     renderSourceStats(container, report?.sourceStats);
@@ -178,12 +178,18 @@
   function renderNextSessionRules(
     container,
     rules,
-    emptyMessage = "이번 세션에서는 제안할 구체적인 규칙이 없습니다."
+    emptyMessage = "이번 세션에서는 제안할 만큼 구체적인 행동 근거가 없습니다."
   ) {
     container.replaceChildren();
     const section = document.createElement("section");
     section.className = "jjg-report-section jjg-next-session-rules";
-    appendTextElement(section, "h3", "", "다음 세션 규칙");
+    appendTextElement(section, "h3", "", "다음 세션 맞춤 조언");
+    appendTextElement(
+      section,
+      "p",
+      "jjg-next-advice-description",
+      "이번 세션의 실제 기록을 바탕으로 다음 세션에서 시도해볼 행동을 제안해요. 이 조언은 자동으로 적용되지 않습니다."
+    );
 
     if (!Array.isArray(rules) || rules.length === 0) {
       appendTextElement(section, "p", "", emptyMessage);
@@ -194,12 +200,14 @@
     const list = document.createElement("ol");
     rules.forEach((item) => {
       const listItem = document.createElement("li");
+      appendTextElement(listItem, "div", "jjg-next-advice-label", "조언");
       appendTextElement(listItem, "div", "jjg-next-rule", item?.rule || "");
+      appendTextElement(listItem, "div", "jjg-next-advice-label", "근거");
       appendTextElement(
         listItem,
         "div",
         "jjg-next-rule-evidence",
-        `근거: ${item?.evidence || ""}`
+        item?.evidence || ""
       );
       list.appendChild(listItem);
     });

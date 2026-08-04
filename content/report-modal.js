@@ -78,55 +78,100 @@
     return backdrop.querySelector("#jjg-next-session-rules");
   }
 
+  function appendModalElement(parent, tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  }
+
+  function getActionsContainer(backdrop) {
+    return backdrop.querySelector("#jjg-report-modal-actions");
+  }
+
+  function renderPurposeChangeActions(backdrop, options, { failed = false } = {}) {
+    const actions = getActionsContainer(backdrop);
+    if (!actions) return;
+    actions.replaceChildren();
+    if (!options.showStartNewPurposeButton || typeof options.onStartNewPurpose !== "function") {
+      return;
+    }
+
+    if (failed) {
+      const retryButton = appendModalElement(
+        actions,
+        "button",
+        "jjg-confirm-btn",
+        "다시 시도"
+      );
+      retryButton.id = "jjg-report-retry-purpose-change";
+      retryButton.addEventListener("click", () => requestAndRenderReport(backdrop, options));
+    }
+
+    const purposeButton = appendModalElement(
+      actions,
+      "button",
+      failed ? "jjg-secondary-btn" : "jjg-confirm-btn",
+      failed ? "리포트 없이 새 목적 설정" : "새 목적 설정하기"
+    );
+    purposeButton.id = "jjg-report-start-new-purpose";
+    purposeButton.addEventListener("click", async () => {
+      close();
+      await options.onStartNewPurpose();
+    });
+  }
+
   async function loadNextSessionRules(backdrop) {
     const container = getRulesContainer(backdrop);
     if (!container) return;
-    renderNextSessionRules(container, [], "AI가 다음 세션 규칙을 만들고 있어요...");
+    renderNextSessionRules(
+      container,
+      [],
+      "이번 기록을 바탕으로 다음 세션 맞춤 조언을 준비하고 있어요..."
+    );
 
     const response = await sendMessageWithTimeout(
       { type: "GENERATE_NEXT_SESSION_RULES" },
       RULES_TIMEOUT_MS
     );
-    if (!document.getElementById(BACKDROP_ID) || !getRulesContainer(backdrop)) return;
+    if (document.getElementById(BACKDROP_ID) !== backdrop || !getRulesContainer(backdrop)) return;
     if (!response || !response.ok) {
-      renderNextSessionRules(container, [], resolveErrorMessage(response));
+      renderNextSessionRules(
+        container,
+        [],
+        "맞춤 조언을 준비하지 못했어요. 기존 세션 리포트는 정상적으로 확인할 수 있습니다."
+      );
       return;
     }
     renderNextSessionRules(
       container,
       response.rules,
-      response.reason || "제안할 다음 세션 규칙이 없습니다."
+      response.reason || "이번 세션에서는 제안할 만큼 구체적인 행동 근거가 없습니다."
     );
   }
 
-  async function show() {
-    close();
-
-    const backdrop = document.createElement("div");
-    backdrop.id = BACKDROP_ID;
-    backdrop.className = "jjg-backdrop";
-    backdrop.innerHTML = `
-      <div class="jjg-modal jjg-report-modal">
-        <h2>몰입 세션이 끝났어요</h2>
-        <div id="jjg-report-modal-body"></div>
-        <button class="jjg-modal-close" id="jjg-report-modal-close">닫기</button>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-    backdrop.querySelector("#jjg-report-modal-close").addEventListener("click", close);
-
+  async function requestAndRenderReport(backdrop, options) {
+    if (backdrop.__jjgReportLoading) return;
+    backdrop.__jjgReportLoading = true;
+    renderPurposeChangeActions(backdrop, options);
     showMessage(backdrop, "AI가 이번 세션의 시청 경로를 분석하고 있어요...");
 
     const response = await sendMessageWithTimeout(
       { type: "GENERATE_SESSION_REPORT" },
       REQUEST_TIMEOUT_MS
     );
+    backdrop.__jjgReportLoading = false;
 
     // 사용자가 기다리는 동안 닫았으면 아무것도 하지 않는다.
-    if (!document.getElementById(BACKDROP_ID)) return;
+    if (document.getElementById(BACKDROP_ID) !== backdrop) return;
 
     if (!response || !response.ok) {
-      showMessage(backdrop, resolveErrorMessage(response));
+      showMessage(
+        backdrop,
+        `${resolveErrorMessage(response)} 현재 기록은 그대로 보관되어 있습니다.`
+      );
+      renderPurposeChangeActions(backdrop, options, { failed: true });
       return;
     }
 
@@ -136,8 +181,34 @@
       rulesContainer.id = "jjg-next-session-rules";
       body.appendChild(rulesContainer);
     });
-    // 규칙 생성 실패가 이미 표시된 증거 리포트를 가리지 않도록 별도로 처리한다.
+    renderPurposeChangeActions(backdrop, options);
+    // 맞춤 조언 생성 실패가 이미 표시된 증거 리포트를 가리지 않도록 별도로 처리한다.
     loadNextSessionRules(backdrop);
+  }
+
+  async function show(options = {}) {
+    close();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = BACKDROP_ID;
+    backdrop.className = "jjg-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "jjg-modal jjg-report-modal";
+    appendModalElement(modal, "h2", "", "몰입 세션이 끝났어요");
+    const body = document.createElement("div");
+    body.id = "jjg-report-modal-body";
+    modal.appendChild(body);
+    const actions = document.createElement("div");
+    actions.id = "jjg-report-modal-actions";
+    actions.className = "jjg-report-modal-actions";
+    modal.appendChild(actions);
+    const closeButton = appendModalElement(modal, "button", "jjg-modal-close", "닫기");
+    closeButton.id = "jjg-report-modal-close";
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    closeButton.addEventListener("click", close);
+
+    await requestAndRenderReport(backdrop, options);
   }
 
   root.JJG_REPORT_MODAL = Object.freeze({ show, close });

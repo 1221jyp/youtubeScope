@@ -249,6 +249,24 @@
       stopInterval();
     }
 
+    async function resumeAfterEndingCancel() {
+      const session = await getSession();
+      const videoId = currentVideoId() || "";
+      if (session.status !== SESSION_STATUS.ACTIVE || !videoId) return null;
+      if (
+        !active &&
+        previous &&
+        previous.sessionId === session.sessionId &&
+        previous.videoId === videoId
+      ) {
+        active = previous;
+        previous = null;
+        ensureInterval();
+        return active;
+      }
+      return handleLocationChange();
+    }
+
     function getState() {
       return {
         active: active ? { ...active, navigation: { ...active.navigation } } : null,
@@ -264,6 +282,7 @@
       checkpoint,
       finalizeCurrent,
       resetForSession,
+      resumeAfterEndingCancel,
       getState,
     });
   }

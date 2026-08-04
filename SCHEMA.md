@@ -26,7 +26,7 @@
 | `SESSION_LOG` | `jjg_session_log` | 영상 로그 배열 |
 | `COMPLETION_RESULT` | `jjg_completion_result` | 목표 달성 확인 결과 |
 | `SESSION_REPORT` | `jjg_session_report` | AI 세션 리포트 캐시 |
-| `NEXT_SESSION_RULES` | `jjg_next_session_rules` | 다음 세션 규칙 |
+| `NEXT_SESSION_RULES` | `jjg_next_session_rules` | 다음 세션 맞춤 조언(내부 호환 이름은 rules 유지) |
 | `GEMINI_API_KEY` | `jjg_gemini_api_key` | 현행 Gemini API 키 |
 | `GEMINI_MODEL` | `jjg_gemini_model` | 현행 Gemini 모델 |
 | `VERDICT_CACHE` | `jjg_verdict_cache` | 영상 판정 캐시 |
@@ -56,6 +56,8 @@ const session = JJG_SCHEMA.createSession();
 - `ending`에서 종료 버튼은 비활성화되어 중복 클릭이 막힌다.
 - `COMPLETION_RESULT`를 저장한 뒤에만 `ended`로 넘어가고, 그때 `endedAt`을 함께 쓴다.
 - 새 세션을 시작하면 `active`로 돌아가며 로그·리포트·달성 결과가 초기화된다.
+- active 세션에서 목적 변경 시 리포트 생성 여부를 먼저 선택한다. 리포트를 선택하면 기존 종료 상태 전이를
+  재사용하며, 리포트 없이 변경하더라도 새 목적이 최종 확정되기 전에는 기존 세션 로그를 유지한다.
 
 저장소는 세션을 키 4개(`SESSION_ID`/`SESSION_STATUS`/`SESSION_STARTED_AT`/`SESSION_ENDED_AT`)로
 나눠 담는다. `normalizeSession()`은 객체 하나를 받으므로 읽을 때 다시 조립해서 넘겨야 한다.
@@ -253,13 +255,13 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 
 아직 확인하지 않았다면 전체 값으로 `null`을 사용하며 `normalizeCompletionResult(null)`은 정상이다.
 
-## 다음 세션 규칙
+## 다음 세션 맞춤 조언
 
 `NEXT_SESSION_RULES`는 하나의 저장소 키에서 생성 상태까지 구분한다.
 
 - `null` 또는 `undefined`: 아직 생성하지 않음
-- `[]`: 생성했지만 제안할 규칙 없음
-- 배열에 항목 존재: 생성된 규칙 있음
+- `[]`: 생성했지만 제안할 조언 없음
+- 배열에 항목 존재: 생성된 조언 있음
 
 ```js
 [
@@ -271,8 +273,12 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 ```
 
 `normalizeNextSessionRules()`은 최대 10개를 허용한다. 빈 `rule`이나 객체가 아닌 항목은 결과에서
-제외하고 오류를 반환한다. 실제 규칙 생성 기능은 정규화된 로그의 증거 문장과 정확히 연결된 규칙만
-최대 3개 저장한다. 규칙 자동 적용이나 위반 감시는 아직 구현하지 않는다.
+제외하고 오류를 반환한다. 실제 맞춤 조언 생성 기능은 정규화된 로그의 증거 문장과 정확히 연결된
+조언만 최대 3개 저장한다.
+
+내부 스키마와 기존 저장 데이터 호환성을 위해 `NEXT_SESSION_RULES`, `normalizeNextSessionRules()`,
+`rule`, `evidence` 이름을 유지한다. 사용자 화면에서는 자동 적용되는 정책으로 오해하지 않도록
+“다음 세션 맞춤 조언”으로 표시한다. 현재 조언은 사용자에게 제시만 하며 다음 세션에 자동 적용되지 않는다.
 
 ## 기능별 데이터 담당
 
@@ -283,8 +289,8 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 | 영상 판정 | 향후 3단계 판정 기능 | content 경고·차단, 로그 |
 | 이유 재판정 | 사용자 이유 재판정 기능 | content, 로그 |
 | 세션 로그 | content의 영상 흐름 기록 | popup, AI 리포트, 완료 확인 |
-| 목표 달성 결과 | 향후 완료 확인 기능 | popup, 다음 세션 규칙 |
-| 다음 세션 규칙 | `background/next-session-rules.js` | popup, 종료 리포트 모달 |
+| 목표 달성 결과 | 향후 완료 확인 기능 | popup, 다음 세션 맞춤 조언 |
+| 다음 세션 맞춤 조언 | `background/next-session-rules.js` | popup, 종료 리포트 모달 |
 
 ## 사용 예
 

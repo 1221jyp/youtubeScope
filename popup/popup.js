@@ -69,22 +69,22 @@ function renderRules(rules, message) {
   globalThis.JJG_REPORT_VIEW.renderNextSessionRules(
     container,
     rules,
-    message || "이번 세션에서는 제안할 구체적인 규칙이 없습니다."
+    message || "이번 세션에서는 제안할 만큼 구체적인 행동 근거가 없습니다."
   );
 }
 
 function requestRules() {
   if (rulesLoading) return;
   rulesLoading = true;
-  renderRules([], "AI가 다음 세션 규칙을 만들고 있어요...");
+  renderRules([], "이번 기록을 바탕으로 다음 세션 맞춤 조언을 준비하고 있어요...");
   chrome.runtime.sendMessage({ type: "GENERATE_NEXT_SESSION_RULES" }, (response) => {
     rulesLoading = false;
     if (chrome.runtime.lastError || !response) {
-      renderRules([], "다음 세션 규칙을 불러오지 못했습니다.");
+      renderRules([], "맞춤 조언을 준비하지 못했어요. 기존 세션 리포트는 정상적으로 확인할 수 있습니다.");
       return;
     }
     if (!response.ok) {
-      renderRules([], response.error);
+      renderRules([], "맞춤 조언을 준비하지 못했어요. 기존 세션 리포트는 정상적으로 확인할 수 있습니다.");
       return;
     }
     renderRules(response.rules, response.reason);

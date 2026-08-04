@@ -15,6 +15,8 @@
   const { STORAGE_KEYS, SESSION_STATUS, createSession, normalizeSession } = root.JJG_SCHEMA;
 
   const BUTTON_BAR_ID = "jjg-session-bar";
+  const PURPOSE_CHANGE_BACKDROP_ID = "jjg-purpose-change-backdrop";
+  let purposeChangeOpening = false;
 
   // 저장소는 세션을 키 4개로 나눠 담는다. normalizeSession()은 객체 하나를 받으므로 다시 조립한다.
   async function getSession() {
@@ -102,6 +104,7 @@
       [STORAGE_KEYS.SESSION_STATUS]: SESSION_STATUS.ACTIVE,
     });
     if (!saved) return false;
+    if (root.JJG_DWELL_TRACKER) await root.JJG_DWELL_TRACKER.resumeAfterEndingCancel();
     await renderSessionBar();
     return true;
   }
@@ -146,6 +149,104 @@
     return btn;
   }
 
+  function appendPurposeChangeElement(parent, tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  }
+
+  async function showPurposeChangePrompt() {
+    if (purposeChangeOpening || document.getElementById(PURPOSE_CHANGE_BACKDROP_ID)) return false;
+    purposeChangeOpening = true;
+    const session = await getSession();
+    if (session.status !== SESSION_STATUS.ACTIVE) {
+      purposeChangeOpening = false;
+      return false;
+    }
+
+    const backdrop = document.createElement("div");
+    backdrop.id = PURPOSE_CHANGE_BACKDROP_ID;
+    backdrop.className = "jjg-backdrop";
+    const modal = document.createElement("div");
+    modal.className = "jjg-modal jjg-purpose-change-modal";
+    appendPurposeChangeElement(modal, "h2", "", "목적을 변경하기 전에 이번 세션을 정리할까요?");
+    appendPurposeChangeElement(
+      modal,
+      "p",
+      "jjg-purpose-change-description",
+      "현재 목적을 변경하면 새로운 세션이 시작됩니다. 원하면 지금까지의 기록으로 리포트를 만든 뒤 변경할 수 있어요."
+    );
+
+    const reportButton = appendPurposeChangeElement(
+      modal,
+      "button",
+      "jjg-confirm-btn",
+      "리포트 생성 후 변경"
+    );
+    reportButton.id = "jjg-change-with-report";
+    const directButton = appendPurposeChangeElement(
+      modal,
+      "button",
+      "jjg-secondary-btn",
+      "리포트 없이 바로 변경"
+    );
+    directButton.id = "jjg-change-without-report";
+    const cancelButton = appendPurposeChangeElement(
+      modal,
+      "button",
+      "jjg-text-btn",
+      "계속 현재 목적 유지"
+    );
+    cancelButton.id = "jjg-purpose-change-cancel";
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    purposeChangeOpening = false;
+
+    const buttons = [reportButton, directButton, cancelButton];
+    let processing = false;
+    const setProcessing = (value) => {
+      processing = value;
+      buttons.forEach((button) => { button.disabled = value; });
+    };
+    const openPurposeEditor = () => showPurposeModal(session.purpose);
+
+    reportButton.addEventListener("click", async () => {
+      if (processing) return;
+      setProcessing(true);
+      if (!(await beginEnding())) {
+        setProcessing(false);
+        return;
+      }
+      backdrop.remove();
+      const completionOpened = await root.JJG_COMPLETION.askCompletion({
+        onConfirm: async (completionStatus) => {
+          if (!(await completeSession(completionStatus))) return false;
+          await root.JJG_REPORT_MODAL.show({
+            showStartNewPurposeButton: true,
+            onStartNewPurpose: openPurposeEditor,
+          });
+          return true;
+        },
+        onCancel: () => cancelEnding(),
+      });
+      if (!completionOpened) await cancelEnding();
+    });
+
+    directButton.addEventListener("click", () => {
+      if (processing) return;
+      backdrop.remove();
+      openPurposeEditor();
+    });
+
+    cancelButton.addEventListener("click", () => {
+      if (processing) return;
+      backdrop.remove();
+    });
+    return true;
+  }
+
   async function renderSessionBar() {
     const session = await getSession();
     let bar = document.getElementById(BUTTON_BAR_ID);
@@ -158,9 +259,7 @@
 
     if (session.status === SESSION_STATUS.ACTIVE) {
       bar.appendChild(
-        makeButton("jjg-change-purpose-btn", "🎯 목적 변경", async () =>
-          showPurposeModal(await getPurpose())
-        )
+        makeButton("jjg-change-purpose-btn", "🎯 목적 변경", showPurposeChangePrompt)
       );
       bar.appendChild(
         makeButton("jjg-end-session-btn", "⏹ 몰입 종료", onEndSessionClick, { variant: "jjg-end" })
@@ -386,5 +485,6 @@
     completeSession,
     renderSessionBar,
     showPurposeModal,
+    showPurposeChangePrompt,
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

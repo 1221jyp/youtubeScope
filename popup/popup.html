@@ -5,7 +5,10 @@
   <title>조준경 - 세션 리포트</title>
   <style>
     body {
-      width: 320px;
+      width: 560px;
+      max-height: 700px;
+      box-sizing: border-box;
+      overflow-y: auto;
       margin: 0;
       padding: 16px;
       font-family: "Roboto", "Noto Sans KR", sans-serif;
@@ -129,9 +132,10 @@
       color: #8a1c17;
     }
     #jjg-report-output {
-      max-height: 310px;
+      max-height: 500px;
       overflow-y: auto;
-      padding-right: 3px;
+      padding-right: 8px;
+      scrollbar-gutter: stable;
     }
     .jjg-report-section {
       margin: 0 0 8px;
@@ -145,15 +149,15 @@
     }
     .jjg-report-section h3 {
       margin: 0 0 4px;
-      font-size: 12px;
+      font-size: 14px;
     }
     .jjg-report-section p,
     .jjg-report-section ul,
     .jjg-report-section ol {
       margin: 0;
       color: #444;
-      font-size: 11.5px;
-      line-height: 1.55;
+      font-size: 13px;
+      line-height: 1.65;
       overflow-wrap: anywhere;
     }
     .jjg-report-section ul,
@@ -163,6 +167,13 @@
     .jjg-next-rule {
       margin-bottom: 3px;
       font-weight: 600;
+    }
+    .jjg-next-advice-description { margin-bottom: 9px !important; }
+    .jjg-next-advice-label {
+      margin-top: 5px;
+      color: #333;
+      font-size: 10.5px;
+      font-weight: 700;
     }
     .jjg-next-rule-evidence {
       margin-bottom: 8px;
@@ -175,7 +186,7 @@
       justify-content: space-between;
       gap: 8px;
       padding: 2px 0;
-      font-size: 11.5px;
+      font-size: 13px;
     }
     .jjg-report-metric-value { flex: 0 0 auto; font-weight: 600; }
     .jjg-timeline-item {
@@ -187,7 +198,7 @@
     }
     .jjg-timeline-title,
     .jjg-timeline-meta,
-    .jjg-timeline-arrow { overflow-wrap: anywhere; font-size: 11px; }
+    .jjg-timeline-arrow { overflow-wrap: anywhere; font-size: 12.5px; }
     .jjg-timeline-title { font-weight: 600; }
     .jjg-timeline-meta { margin-top: 3px; color: #666; }
     .jjg-timeline-arrow { padding: 5px 3px; color: #777; }
