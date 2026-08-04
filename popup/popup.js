@@ -54,9 +54,8 @@ function renderChain(log) {
 
 function renderReport(report) {
   globalThis.JJG_REPORT_VIEW.renderReport(document.getElementById("jjg-report-output"), report);
-  const rulesContainer = document.createElement("div");
-  rulesContainer.id = "jjg-next-session-rules";
-  document.getElementById("jjg-report-output").appendChild(rulesContainer);
+  document.getElementById("jjg-session-overview").hidden = true;
+  document.getElementById("jjg-report-panel-title").hidden = true;
 
   document.getElementById("jjg-report-error").hidden = true;
   document.getElementById("jjg-report-content").hidden = false;
@@ -92,6 +91,8 @@ function requestRules() {
 }
 
 function showReportError(message) {
+  document.getElementById("jjg-session-overview").hidden = false;
+  document.getElementById("jjg-report-panel-title").hidden = false;
   document.getElementById("jjg-report-error-message").textContent =
     message || "AI 리포트를 생성하지 못했습니다.";
   document.getElementById("jjg-report-error").hidden = false;

@@ -232,11 +232,19 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 
 - `sessionDurationMs`: `endedAt - startedAt`
 - `trackedDwellMs`: 유효한 모든 `dwellMs` 합계
+- `measuredDwellMs`: `trackedDwellMs`와 같은 값인 새 화면용 호환 별칭
+- `unknownDwellCount`: 유효한 측정 체류시간이 없는 로그 수
 - `focusedDwellMs`: `watched`, `approved_reason` 체류시간 합계
+- `goalRelatedDwellMs`: `watched` 체류시간 합계
 - `approvedDwellMs`: `approved_reason` 체류시간 합계
+- `approvedReasonDwellMs`: `approvedDwellMs`와 같은 값인 새 화면용 호환 별칭
 - `deviationDwellMs`: `left_anyway` 체류시간 합계
+- `actualDeviationDwellMs`: `deviationDwellMs`와 같은 값인 새 화면용 호환 별칭
+- `preventedDwellMs`: 유효한 시간이 있는 `went_back` 체류시간 합계
 - `untrackedMs`: `max(0, sessionDurationMs - trackedDwellMs)`
 - `focusedRatio`, `deviationRatio`: 추적 시간이 0이면 `null`, 아니면 각각 추적 시간 대비 비율
+- `goalRelatedRate`, `actualDeviationRate`: 추적 시간이 0이거나 체류시간 합계가 세션 시간을 초과하면
+  `null`, 아니면 각각 목표 관련·실제 이탈 체류시간의 측정 체류시간 대비 비율
 
 시간 합계에는 `dwellMs`가 유효하고 `timeMeasurement`가 `measured` 또는 `estimated`인
 기록만 포함한다. `unknown`은 값이 있더라도 시간 분석에서 제외한다. `estimated`가 포함된
@@ -245,10 +253,27 @@ AI 장애 기록이라 이탈 분석에서 제외한다. 실제 이탈로 집계
 아니라 영상 페이지에 머문 시간이다.
 
 `sourceStats`는 실제로 존재하는 source별로 진입 수, 유효한 체류시간 합계, 시간 측정 항목 수
-(`timedEntries`), 추정 항목 수(`estimatedEntries`), `left_anyway` 수만 집계한다. `approved_reason`, `went_back`, `blocked`,
-`skipped`는 실제 이탈 수에 포함하지 않는다. `unknown`도 데이터가 있으면 별도 집계한다.
+(`timedEntries`), 추정 항목 수(`estimatedEntries`), `left_anyway`, `approved_reason`, `went_back`,
+`blocked` 수를 각각 집계한다. `approved_reason`, `went_back`, `blocked`, `skipped`는 실제 이탈 수에
+포함하지 않는다. `unknown`도 데이터가 있으면 별도 집계하되 근거 없는 경로 패턴으로 단정하지 않는다.
 
-`timeline`의 제목, 시간, action, 이동 원인은 정규화된 실제 로그에서 코드로 만들며 AI 응답으로 교체하지 않는다. `dataQuality`에는 시간·이동 원인 미측정과 세션 시간보다 긴 중첩 체류시간 등의 제한을 기록한다.
+`timeline`의 제목, 시간, action, 이동 원인은 정규화된 실제 로그에서 코드로 만들며 AI 응답으로 교체하지 않는다.
+기본 화면의 `coreTimeline`은 실제 이탈, 돌아가기, 이유 승인, 체류시간이 긴 목표 관련 영상, 나머지
+순으로 최대 5개를 선택한 뒤 실제 시간순으로 표시한다. `interventionMoments`는 `went_back`,
+`approved_reason`, `blocked` 순으로 최대 3개를 고른다. `dataQuality`에는 시간·이동 원인 미측정과
+세션 시간보다 긴 중첩 체류시간 등의 제한을 기록한다.
+
+### AI 몰입 리포트 표시와 계산 책임
+
+사용자 화면은 목표·달성 결과, 4개 핵심 지표, AI 몰입 분석, AI가 몰입을 지켜준 순간, 간단한 몰입
+흐름, 실제 이탈 분석(있을 때만), 다음 세션 맞춤 조언(최대 2개), 접힌 상세 분석 순서다. 팝업과
+종료 모달은 모두 `shared/report-view.js`의 공통 렌더러를 사용한다.
+
+영상 제목·체류시간·이동 원인·시간순서·행동 횟수·비율·첫 실제 이탈·이탈 경로·목표 달성 결과는
+코드가 정규화된 현재 세션 데이터에서 계산한다. Gemini에는 코드 통계와 `evidenceFacts`만 전달하며,
+Gemini는 2~4문장의 해석을 작성한다. 검증되지 않은 수치나 증거 ID가 들어간 AI 서술은 코드 작성
+fallback으로 교체된다. AI 생성이 실패해도 코드 통계와 타임라인은 `aiStatus.generated: false`와 함께
+저장·표시한다. 저장 실패는 성공으로 처리하지 않는다.
 
 ### 실제 이탈과 증거 중심 분석
 

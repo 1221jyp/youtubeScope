@@ -161,7 +161,7 @@
   display: none;
 }
 
-/* ---------- 종료 후 이탈 리포트 ---------- */
+/* ---------- 종료 후 AI 몰입 리포트 ---------- */
 
 .jjg-report-modal {
   width: 900px;
@@ -309,6 +309,153 @@
 .jjg-timeline-title { font-weight: 600; }
 .jjg-timeline-meta { margin-top: 3px; color: #666; }
 .jjg-timeline-arrow { padding: 6px 4px; color: #777; }
+
+.jjg-immersion-report,
+.jjg-immersion-report * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.jjg-immersion-report {
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.jjg-immersion-report-title {
+  margin: 0 0 14px;
+  font-size: 23px;
+  letter-spacing: -0.02em;
+}
+
+.jjg-report-goal-card {
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+}
+
+.jjg-report-eyebrow,
+.jjg-report-section-title {
+  margin: 0 0 8px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.jjg-report-goal-title { margin: 0 0 8px; font-size: 19px; }
+.jjg-report-goal-result { margin: 0; color: #1d4ed8 !important; font-weight: 700; }
+.jjg-report-goal-condition { margin: 8px 0 0; color: #475569 !important; }
+
+.jjg-report-core-metrics,
+.jjg-report-interventions,
+.jjg-report-timeline { margin-bottom: 14px; }
+
+.jjg-report-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.jjg-report-metric-card {
+  min-width: 0;
+  padding: 13px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  text-align: center;
+}
+
+.jjg-report-metric-card .jjg-report-metric-value { font-size: 20px; color: #0f172a; }
+.jjg-report-metric-card .jjg-report-metric-label { margin-top: 4px; color: #64748b; font-size: 12px; }
+
+.jjg-report-ai-core {
+  margin-bottom: 14px;
+  padding: 16px;
+  border-left: 4px solid #7c3aed;
+  border-radius: 10px;
+  background: #f5f3ff;
+}
+
+.jjg-report-ai-core h3 { margin: 0 0 8px; font-size: 16px; }
+.jjg-report-ai-core p { margin: 0; line-height: 1.7; }
+.jjg-report-ai-fallback { margin-top: 8px !important; color: #6b7280 !important; font-size: 12px; }
+
+.jjg-report-interventions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; }
+.jjg-report-interventions > .jjg-report-section-title,
+.jjg-report-interventions > .jjg-report-muted { grid-column: 1 / -1; }
+
+.jjg-report-no-deviation {
+  margin: 9px 0 0;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.jjg-intervention-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dbe5dd;
+  border-radius: 10px;
+  background: #f8fbf8;
+}
+.jjg-intervention-card.action-approved_reason { border-color: #bfdbfe; background: #eff6ff; }
+.jjg-intervention-card.action-blocked { border-color: #e5e7eb; background: #f9fafb; }
+.jjg-intervention-card h4 { margin: 0 0 8px; font-size: 14px; overflow-wrap: anywhere; }
+
+.jjg-intervention-row,
+.jjg-report-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.jjg-intervention-label { flex: 0 0 auto; color: #64748b; }
+.jjg-intervention-value { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+
+.jjg-report-timeline { padding: 0; background: transparent; }
+.jjg-report-timeline .jjg-timeline-item { padding: 10px 12px; border-radius: 9px; }
+.jjg-timeline-item.action-left_anyway { border-color: #fecaca; background: #fff7f7; }
+.jjg-timeline-item.action-went_back { border-color: #bbf7d0; background: #f0fdf4; }
+.jjg-timeline-item.action-approved_reason { border-color: #bfdbfe; background: #eff6ff; }
+
+.jjg-report-deviation {
+  margin-bottom: 14px;
+  padding: 15px;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  border-radius: 10px;
+  background: #fff7f7;
+}
+.jjg-report-deviation h3, .jjg-report-deviation h4 { margin: 0 0 8px; }
+.jjg-deviation-summary { margin: 10px 0 0; line-height: 1.6; }
+
+.jjg-next-session-rules-host { margin-bottom: 14px; }
+.jjg-next-session-rules { border: 1px solid #fde68a; background: #fffbeb; }
+
+.jjg-report-details {
+  margin-bottom: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.jjg-report-details > summary {
+  padding: 13px 14px;
+  cursor: pointer;
+  font-weight: 700;
+  outline-offset: -2px;
+}
+.jjg-report-details-body { padding: 0 14px 14px; }
+.jjg-report-detail-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid #edf2f7; }
+.jjg-report-detail-block h4 { margin: 0 0 8px; }
+.jjg-report-detail-row strong { text-align: right; }
+.jjg-report-muted { color: #64748b !important; }
+
+@media (max-width: 620px) {
+  .jjg-report-interventions { grid-template-columns: 1fr; }
+}
 
 #jjg-purpose-input {
   width: 100%;

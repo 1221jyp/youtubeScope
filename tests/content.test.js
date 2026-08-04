@@ -438,8 +438,23 @@ function testNextSessionRulesView() {
     /이번 세션에서는 제안할 만큼 구체적인 행동 근거가 없습니다\./
   );
 
+  context.JJG_REPORT_VIEW.renderNextSessionRules(container, [
+    { rule: "첫 번째 조언", evidence: "첫 번째 근거" },
+    { rule: "두 번째 조언", evidence: "두 번째 근거" },
+    { rule: "세 번째 조언", evidence: "세 번째 근거" },
+  ]);
+  assert.match(allText(container), /첫 번째 조언/);
+  assert.match(allText(container), /두 번째 조언/);
+  assert.doesNotMatch(allText(container), /세 번째 조언/);
+
   context.JJG_REPORT_VIEW.renderReport(container, {
     summary: "요약",
+    goalOverview: {
+      title: "해시테이블의 원리 학습",
+      completionStatus: "partial",
+      completionCondition: "충돌 처리 방식을 설명할 수 있음",
+      sessionDurationMs: 300000,
+    },
     hasActualDeviation: false,
     stats: {
       watched: 1,
@@ -467,12 +482,30 @@ function testNextSessionRulesView() {
     timeStats: {
       sessionDurationMs: 300000,
       trackedDwellMs: 240000,
+      measuredDwellMs: 240000,
       focusedDwellMs: 240000,
+      goalRelatedDwellMs: 240000,
+      goalRelatedRate: 1,
       deviationDwellMs: 0,
       untrackedMs: 60000,
     },
-    sourceStats: [{ source: "search", count: 1, actualDeviations: 0 }],
-    dataQuality: { warnings: ["일부 영상의 체류시간을 측정하지 못했습니다."] },
+    sourceStats: [{ source: "search", count: 1, timedEntries: 1, dwellMs: 240000, actualDeviations: 0 }],
+    interventionMoments: [{
+      title: "측정되지 않은 영상",
+      finalAction: "went_back",
+      navigationSource: "recommendation",
+      initialReason: "목표와 관련 없음",
+    }],
+    dataQuality: {
+      measuredTimeEntries: 1,
+      estimatedTimeEntries: 1,
+      unknownTimeEntries: 1,
+      warnings: ["일부 영상의 체류시간을 측정하지 못했습니다."],
+    },
+    aiCoreAnalysis: {
+      summary: "측정된 체류시간을 중심으로 세션 행동을 분석했습니다. 돌아가기로 실제 이탈을 방지했습니다.",
+      evidenceIds: ["TIME_1"],
+    },
     analysis: {
       focusAnalysis: { summary: "측정된 기록을 중심으로 집중 흐름을 분석했습니다." },
       preventionAnalysis: { summary: "돌아가기로 실제 이탈을 방지했습니다." },
@@ -484,11 +517,21 @@ function testNextSessionRulesView() {
   assert.match(noDeviationText, /이동 원인 불명/);
   assert.match(noDeviationText, /<img src=x/);
   assert.match(noDeviationText, /이번 세션에서는 확인된 실제 이탈이 없습니다/);
-  assert.match(noDeviationText, /집중 흐름 분석/);
+  assert.match(noDeviationText, /AI 몰입 리포트/);
+  assert.match(noDeviationText, /오늘의 목표와 달성 결과/);
+  assert.match(noDeviationText, /해시테이블의 원리 학습/);
+  assert.match(noDeviationText, /부분 달성.*5분 진행/);
+  assert.match(noDeviationText, /목표 관련 체류 비율.*100%|100%.*목표 관련 체류 비율/);
+  assert.match(noDeviationText, /AI 핵심 분석/);
+  assert.match(noDeviationText, /AI가 몰입을 지켜준 순간/);
   assert.match(noDeviationText, /돌아가기로 실제 이탈을 방지/);
   assert.doesNotMatch(noDeviationText, /첫 이탈 지점/);
   assert.doesNotMatch(noDeviationText, /주요 이탈 경로/);
   assert.doesNotMatch(noDeviationText, /실제 이탈 분석/);
+  assert.match(noDeviationText, /간단한 몰입 흐름/);
+  assert.match(noDeviationText, /상세 분석 보기/);
+  assert.match(noDeviationText, /전체 영상 타임라인/);
+  assert.ok(allTags(container).includes("DETAILS"));
   assert.equal(allTags(container).includes("IMG"), false);
 
   for (const stats of [
@@ -512,6 +555,7 @@ function testNextSessionRulesView() {
     stats: { actualDeviations: 1 },
     firstDeviation: {
       title: "개발자 브이로그",
+      fromTitle: "해시테이블 강의",
       reason: "목적과 무관",
       dwellMs: 180000,
       timeMeasurement: "estimated",
@@ -523,7 +567,6 @@ function testNextSessionRulesView() {
     },
   });
   const deviationText = allText(container);
-  assert.match(deviationText, /첫 이탈 지점/);
   assert.match(deviationText, /주요 이탈 경로/);
   assert.match(deviationText, /해시테이블 강의.*개발자 브이로그/);
   assert.match(deviationText, /실제 이탈 분석/);

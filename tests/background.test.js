@@ -396,6 +396,7 @@ async function run() {
                       patterns: ["존재하지 않는 영상으로 이동했습니다."],
                       recommendations: ["존재하지 않는 영상을 피하세요."],
                       encouragement: "다음에는 존재하지 않는 영상을 피할 수 있습니다.",
+                      goalOverview: { title: "존재하지 않는 목표", completionStatus: "achieved" },
                       timeStats: { trackedDwellMs: 999999 },
                       sourceStats: [{ source: "external", count: 99, dwellMs: 999999 }],
                       timeline: [{ title: "존재하지 않는 영상", navigationSource: "external" }],
@@ -421,6 +422,9 @@ async function run() {
     ]);
     assert.equal(response.report.stats.actualDeviations, 1);
     assert.equal(response.report.hasActualDeviation, true);
+    assert.equal(response.report.goalOverview.title, "해시테이블 원리 학습");
+    assert.equal(response.report.goalOverview.completionStatus, "partial");
+    assert.equal(response.report.goalOverview.completionCondition, "충돌 처리 방식을 설명할 수 있음");
     assert.equal(response.report.stats.leftAnyway, 1);
     assert.equal(response.report.firstDeviation.entryId, "entry-b");
     assert.equal(response.report.firstDeviation.dwellMs, 400);
@@ -475,15 +479,52 @@ async function run() {
     const timeStats = reportApi.buildTimeStats({ startedAt: 0, endedAt: 2000 }, logs);
     assert.equal(timeStats.sessionDurationMs, 2000);
     assert.equal(timeStats.trackedDwellMs, 1500);
+    assert.equal(timeStats.measuredDwellMs, 1500);
+    assert.equal(timeStats.unknownDwellCount, 1);
     assert.equal(timeStats.focusedDwellMs, 300);
+    assert.equal(timeStats.goalRelatedDwellMs, 100);
     assert.equal(timeStats.approvedDwellMs, 200);
+    assert.equal(timeStats.approvedReasonDwellMs, 200);
     assert.equal(timeStats.deviationDwellMs, 300);
+    assert.equal(timeStats.actualDeviationDwellMs, 300);
+    assert.equal(timeStats.preventedDwellMs, 400);
+    assert.equal(timeStats.goalRelatedRate, 100 / 1500);
+    assert.equal(timeStats.actualDeviationRate, 300 / 1500);
     assert.equal(timeStats.untrackedMs, 500);
     const sourceStats = reportApi.buildSourceStats(logs);
     assert.equal(sourceStats.find((item) => item.source === "search").count, 2);
+    assert.equal(sourceStats.find((item) => item.source === "search").approvedReason, 1);
     assert.equal(sourceStats.find((item) => item.source === "recommendation").actualDeviations, 1);
+    assert.equal(sourceStats.find((item) => item.source === "recommendation").wentBack, 1);
+    assert.equal(sourceStats.find((item) => item.source === "unknown").blocked, 1);
     assert.equal(sourceStats.find((item) => item.source === "unknown").actualDeviations, 0);
     assert.equal(sourceStats.find((item) => item.source === "search").timedEntries, 2);
+
+    const selectedTimeline = reportApi.buildCoreTimeline([
+      { order: 1, title: "짧은 관련", action: "watched", dwellMs: 100 },
+      { order: 2, title: "차단", action: "blocked", dwellMs: null },
+      { order: 3, title: "승인", action: "approved_reason", dwellMs: 200 },
+      { order: 4, title: "긴 관련", action: "watched", dwellMs: 900 },
+      { order: 5, title: "돌아감", action: "went_back", dwellMs: 300 },
+      { order: 6, title: "실제 이탈", action: "left_anyway", dwellMs: 400 },
+      { order: 7, title: "나머지", action: "blocked", dwellMs: null },
+    ]);
+    assert.deepEqual(Array.from(selectedTimeline, (item) => item.title), [
+      "짧은 관련", "승인", "긴 관련", "돌아감", "실제 이탈",
+    ]);
+    assert.equal(selectedTimeline.length, 5);
+
+    const interventionMoments = reportApi.buildInterventionMoments([
+      { ts: 1, title: "차단 1", action: "blocked", navigation: { source: "home" } },
+      { ts: 2, title: "승인 1", action: "approved_reason", navigation: { source: "search" } },
+      { ts: 3, title: "돌아감 1", action: "went_back", navigation: { source: "recommendation" } },
+      { ts: 4, title: "돌아감 2", action: "went_back", navigation: { source: "shorts" } },
+      { ts: 5, title: "승인 2", action: "approved_reason", navigation: { source: "search" } },
+    ]);
+    assert.deepEqual(Array.from(interventionMoments, (item) => item.title), [
+      "돌아감 1", "돌아감 2", "승인 1",
+    ]);
+    assert.equal(interventionMoments.length, 3);
 
     const noDeviation = reportApi.buildEvidenceReport("공부", [
       {
@@ -515,6 +556,12 @@ async function run() {
     assert.equal(noDeviation.stats.actualDeviations, 0);
     assert.equal(noDeviation.timeStats.trackedDwellMs, 90000);
     assert.equal(noDeviation.timeStats.focusedDwellMs, 90000);
+    assert.equal(noDeviation.timeStats.goalRelatedDwellMs, 60000);
+    assert.equal(noDeviation.timeStats.approvedReasonDwellMs, 30000);
+    assert.equal(noDeviation.timeStats.actualDeviationDwellMs, 0);
+    assert.equal(noDeviation.timeStats.preventedDwellMs, 0);
+    assert.equal(noDeviation.timeStats.unknownDwellCount, 3);
+    assert.equal(noDeviation.goalOverview.completionStatus, "partial");
     assert.equal(noDeviation.analysis.deviationAnalysis, null);
     assert.match(noDeviation.analysis.preventionAnalysis.summary, /돌아가기로 이탈을 방지/);
     assert.match(noDeviation.analysis.preventionAnalysis.summary, /승인 시청/);
@@ -529,7 +576,7 @@ async function run() {
     const actualDeviation = reportApi.buildEvidenceReport("공부", [
       { ts: 30, entryId: "after", title: "정상 복귀", action: "watched", navigation: { source: "search" }, timeMeasurement: "unknown" },
       { ts: 10, entryId: "before", title: "기초 강의", action: "watched", navigation: { source: "search" }, timeMeasurement: "unknown" },
-      { ts: 20, entryId: "first", title: "첫 이탈", action: "left_anyway", dwellMs: 120000, timeMeasurement: "estimated", navigation: { source: "recommendation" }, initialVerdict: { reason: "목적과 무관" } },
+      { ts: 20, entryId: "first", title: "첫 이탈", action: "left_anyway", dwellMs: 120000, timeMeasurement: "estimated", navigation: { source: "recommendation", fromEntryId: "before", fromVideoId: "before-video", fromTitle: "기초 강의" }, initialVerdict: { reason: "목적과 무관" } },
       { ts: 21, entryId: "second", title: "연속 이탈", action: "left_anyway", dwellMs: 60000, timeMeasurement: "measured", navigation: { source: "recommendation" } },
     ]);
     assert.equal(actualDeviation.hasActualDeviation, true);
@@ -537,6 +584,9 @@ async function run() {
     assert.equal(actualDeviation.firstDeviation.title, "첫 이탈");
     assert.equal(actualDeviation.firstDeviation.dwellMs, 120000);
     assert.equal(actualDeviation.firstDeviation.navigationSource, "recommendation");
+    assert.equal(actualDeviation.firstDeviation.fromEntryId, "before");
+    assert.equal(actualDeviation.firstDeviation.fromVideoId, "before-video");
+    assert.equal(actualDeviation.firstDeviation.fromTitle, "기초 강의");
     assert.deepEqual(Array.from(actualDeviation.diversionPath), [
       "기초 강의", "첫 이탈", "연속 이탈",
     ]);
@@ -572,6 +622,8 @@ async function run() {
     ]);
     assert.equal(emptyTime.focusedRatio, null);
     assert.equal(emptyTime.deviationRatio, null);
+    assert.equal(emptyTime.goalRelatedRate, null);
+    assert.equal(emptyTime.actualDeviationRate, null);
     const unknownTime = reportApi.buildTimeStats({ startedAt: 0, endedAt: 1000 }, [
       { action: "watched", dwellMs: 900, timeMeasurement: "unknown" },
     ]);
@@ -580,6 +632,11 @@ async function run() {
       { action: "watched", dwellMs: 200, timeMeasurement: "measured" },
     ]);
     assert.equal(overlappingTime.focusedRatio, null);
+    const unknownSourceReport = reportApi.buildEvidenceReport("공부", [
+      { ts: 1, title: "강의 1", action: "watched", dwellMs: 100, timeMeasurement: "measured", navigation: { source: "unknown" } },
+      { ts: 2, title: "강의 2", action: "watched", dwellMs: 100, timeMeasurement: "measured", navigation: { source: "unknown" } },
+    ], { startedAt: 0, endedAt: 1000 });
+    assert.match(unknownSourceReport.aiCoreAnalysis.summary, /특정 진입 경로를 문제로 단정하지 않았습니다/);
     assert.equal(reportApi.buildEvidenceReport("공부", []).timeline.length, 0);
     assert.equal(reportApi.buildEvidenceReport("공부", [{
       ts: 1, title: "한 개", action: "watched", navigation: { source: "unknown" },
@@ -644,8 +701,12 @@ async function run() {
       throw new TypeError("connection refused");
     });
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT", force: true });
-    assert.equal(response.ok, false);
-    assert.match(response.error, /Gemini API/);
+    assert.equal(response.ok, true);
+    assert.equal(response.degraded, true);
+    assert.equal(response.report.aiStatus.generated, false);
+    assert.match(response.report.aiStatus.message, /코드 계산 분석/);
+    assert.equal(response.report.stats.actualDeviations, 1);
+    assert.equal(response.report.timeline.length, 2);
   }
 
   {
@@ -656,7 +717,9 @@ async function run() {
     storage.jjg_gemini_api_key = "";
     const harness = createHarness(storage);
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
-    assert.equal(response.code, "API_KEY_NOT_SET");
+    assert.equal(response.ok, true);
+    assert.equal(response.degraded, true);
+    assert.equal(response.report.aiStatus.errorCode, "api_key_not_set");
     assert.equal(harness.fetchCount, 0);
   }
 
@@ -674,8 +737,10 @@ async function run() {
       text: async () => "",
     }));
     const response = await harness.send({ type: "GENERATE_SESSION_REPORT" });
-    assert.equal(response.ok, false);
-    assert.match(response.error, /응답 형식/);
+    assert.equal(response.ok, true);
+    assert.equal(response.degraded, true);
+    assert.equal(response.report.aiStatus.errorCode, "parse_error");
+    assert.equal(response.report.timeline.length, 2);
   }
 
   {
@@ -868,9 +933,9 @@ async function run() {
     assert.equal(response.ok, true);
     assert.match(prompt, /해시테이블 출제 사례를 확인하려고/);
     assert.match(prompt, /목적과 연결되는 구체적인 이유/);
-    assert.match(prompt, /"decision":"ask_reason"/);
-    assert.match(prompt, /"score":55/);
-    assert.match(prompt, /"initialReason":"간접 관련"/);
+    assert.match(prompt, /코드 생성 evidenceFacts/);
+    assert.match(prompt, /"approvedReason":1/);
+    assert.doesNotMatch(prompt, /시간순 로그\(JSON\)/);
     assert.match(prompt, /충돌 처리 방식을 설명할 수 있음/);
     assert.match(prompt, /"status":"partial"/);
     assert.match(prompt, /"startedAt":1000/);

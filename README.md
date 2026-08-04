@@ -118,12 +118,17 @@ content/main.js
       └ completion.askCompletion() → 목표 달성 확인 (용진 파트)
            └ session.completeSession(status)
                 → COMPLETION_RESULT 저장 → ended + endedAt
-                → report-modal.show()    → 이탈 리포트 모달
+                → report-modal.show()    → AI 몰입 리포트 모달
 
 popup/popup.js
   └ GENERATE_SESSION_REPORT ─→ background/report.js
-       └ 로그에서 센 "증거 리포트" + Gemini 서술을 합쳐서 반환
+       └ 로그에서 센 통계·타임라인 + 검증된 Gemini 해석을 AI 몰입 리포트로 반환
 ```
+
+AI 몰입 리포트의 기본 화면은 목표와 달성 결과, 4개 핵심 지표, AI 핵심 분석, 개입 순간,
+최대 5개의 몰입 흐름, 실제 이탈이 있을 때만 보이는 이탈 분석, 최대 2개의 다음 세션 맞춤 조언으로
+구성된다. 전체 타임라인·이동 원인·시간·행동 통계와 데이터 품질은 접힌 상세 분석에서 확인한다.
+Gemini 호출이 실패해도 정규화된 로그에서 코드가 계산한 통계와 타임라인은 계속 표시된다.
 
 ## 설계상 지켜야 할 것
 

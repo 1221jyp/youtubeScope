@@ -202,15 +202,59 @@
     .jjg-timeline-title { font-weight: 600; }
     .jjg-timeline-meta { margin-top: 3px; color: #666; }
     .jjg-timeline-arrow { padding: 5px 3px; color: #777; }
+    .jjg-immersion-report, .jjg-immersion-report * { box-sizing: border-box; max-width: 100%; }
+    .jjg-immersion-report { color: #1f2937; overflow-wrap: anywhere; }
+    .jjg-immersion-report-title { margin: 0 0 12px; font-size: 20px; }
+    .jjg-report-goal-card { margin-bottom: 12px; padding: 14px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff; }
+    .jjg-report-eyebrow, .jjg-report-section-title { margin: 0 0 7px; color: #475569; font-size: 11px; font-weight: 700; }
+    .jjg-report-goal-title { margin: 0 0 7px; font-size: 17px; }
+    .jjg-report-goal-result { margin: 0; color: #1d4ed8; font-weight: 700; }
+    .jjg-report-goal-condition { margin: 7px 0 0; color: #475569; }
+    .jjg-report-core-metrics, .jjg-report-interventions, .jjg-report-timeline { margin-bottom: 12px; }
+    .jjg-report-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .jjg-report-metric-card { min-width: 0; padding: 11px 7px; border: 1px solid #e2e8f0; border-radius: 9px; text-align: center; }
+    .jjg-report-metric-card .jjg-report-metric-value { font-size: 18px; color: #0f172a; }
+    .jjg-report-metric-card .jjg-report-metric-label { margin-top: 3px; color: #64748b; font-size: 10.5px; }
+    .jjg-report-ai-core { margin-bottom: 12px; padding: 13px; border-left: 4px solid #7c3aed; border-radius: 9px; background: #f5f3ff; }
+    .jjg-report-ai-core h3 { margin: 0 0 7px; font-size: 15px; }
+    .jjg-report-ai-core p { margin: 0; line-height: 1.65; }
+    .jjg-report-ai-fallback { margin-top: 7px !important; color: #6b7280; font-size: 11px; }
+    .jjg-report-interventions { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .jjg-report-interventions > .jjg-report-section-title, .jjg-report-interventions > .jjg-report-muted { grid-column: 1 / -1; }
+    .jjg-report-no-deviation { margin: 8px 0 0; color: #166534; font-size: 12px; font-weight: 650; }
+    .jjg-intervention-card { min-width: 0; padding: 10px; border: 1px solid #dbe5dd; border-radius: 9px; background: #f8fbf8; }
+    .jjg-intervention-card.action-approved_reason { border-color: #bfdbfe; background: #eff6ff; }
+    .jjg-intervention-card.action-blocked { border-color: #e5e7eb; background: #f9fafb; }
+    .jjg-intervention-card h4 { margin: 0 0 7px; font-size: 13px; }
+    .jjg-intervention-row, .jjg-report-detail-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 11.5px; }
+    .jjg-intervention-label { flex: 0 0 auto; color: #64748b; }
+    .jjg-intervention-value { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+    .jjg-report-timeline { padding: 0; background: transparent; }
+    .jjg-timeline-item.action-left_anyway { border-color: #fecaca; background: #fff7f7; }
+    .jjg-timeline-item.action-went_back { border-color: #bbf7d0; background: #f0fdf4; }
+    .jjg-timeline-item.action-approved_reason { border-color: #bfdbfe; background: #eff6ff; }
+    .jjg-report-deviation { margin-bottom: 12px; padding: 12px; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 9px; background: #fff7f7; }
+    .jjg-report-deviation h3, .jjg-report-deviation h4 { margin: 0 0 7px; }
+    .jjg-deviation-summary { margin: 8px 0 0; line-height: 1.55; }
+    .jjg-next-session-rules-host { margin-bottom: 12px; }
+    .jjg-next-session-rules { border: 1px solid #fde68a; background: #fffbeb; }
+    .jjg-report-details { margin-bottom: 12px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; overflow: hidden; }
+    .jjg-report-details > summary { padding: 11px 12px; cursor: pointer; font-weight: 700; outline-offset: -2px; }
+    .jjg-report-details-body { padding: 0 12px 12px; }
+    .jjg-report-detail-block { margin-top: 10px; padding-top: 10px; border-top: 1px solid #edf2f7; }
+    .jjg-report-detail-block h4 { margin: 0 0 7px; }
+    .jjg-report-detail-row strong { text-align: right; }
+    .jjg-report-muted { color: #64748b; }
     [hidden] {
       display: none !important;
     }
   </style>
 </head>
 <body>
-  <h1>이번 세션 리포트</h1>
-  <div class="jjg-purpose" id="jjg-purpose">목적: -</div>
-  <div class="jjg-stats">
+  <div id="jjg-session-overview">
+    <h1>이번 세션 리포트</h1>
+    <div class="jjg-purpose" id="jjg-purpose">목적: -</div>
+    <div class="jjg-stats">
     <div class="jjg-stat">
       <div class="num" id="jjg-total">0</div>
       <div class="label">총 시청 영상</div>
@@ -231,11 +275,12 @@
       <div class="num" id="jjg-blocked">0</div>
       <div class="label">차단됨</div>
     </div>
+    </div>
+    <div id="jjg-chain"></div>
   </div>
-  <div id="jjg-chain"></div>
   <div class="jjg-report-panel">
-    <h2>AI 이탈 리포트</h2>
-    <button class="jjg-report-button" id="jjg-report-generate">AI 이탈 리포트 생성</button>
+    <h2 id="jjg-report-panel-title">AI 몰입 리포트</h2>
+    <button class="jjg-report-button" id="jjg-report-generate">AI 몰입 리포트 생성</button>
     <div class="jjg-report-loading" id="jjg-report-loading" hidden>
       AI가 시청 경로를 분석하고 있어요...
     </div>

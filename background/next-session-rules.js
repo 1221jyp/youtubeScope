@@ -108,7 +108,7 @@
     return estimated ? `약 ${text}` : text;
   }
 
-  function buildEvidenceFacts(log) {
+  function buildEvidenceFacts(log, report = null, completionResult = null) {
     const facts = [];
     const sourceTotals = new Map();
     for (const entry of log) {
@@ -167,6 +167,25 @@
         )}으로 기록됨.`
       );
     });
+    if (Array.isArray(report?.sourceStats)) {
+      report.sourceStats.forEach((stat) => {
+        const interventions =
+          Number(stat?.wentBack || 0) +
+          Number(stat?.approvedReason || 0) +
+          Number(stat?.blocked || 0);
+        if (interventions <= 0 || stat?.source === NAVIGATION_SOURCES.UNKNOWN) return;
+        facts.push(
+          `${SOURCE_LABELS[stat.source] || stat.source} 이동에서 AI 개입 ${interventions}회가 기록되었고 ` +
+          `그중 돌아가기로 실제 이탈을 방지한 선택은 ${Number(stat.wentBack || 0)}회임.`
+        );
+      });
+    }
+    if (facts.length > 0 && completionResult?.status) {
+      const labels = { achieved: "달성", partial: "부분 달성", not_achieved: "미달성" };
+      if (labels[completionResult.status]) {
+        facts.push(`사용자가 확인한 이번 세션의 목표 달성 결과는 ${labels[completionResult.status]}임.`);
+      }
+    }
     return [...new Set(facts)];
   }
 
@@ -246,6 +265,8 @@
                 `목표 달성 결과: ${JSON.stringify(completionResult)}\n` +
                 `코드가 확정한 리포트 사실: ${JSON.stringify({
                   stats: report.stats,
+                  timeStats: report.timeStats,
+                  sourceStats: report.sourceStats,
                   firstDeviation: report.firstDeviation,
                   diversionPath: report.diversionPath,
                 })}\n` +
@@ -341,7 +362,7 @@
     }
 
     const log = normalizeCurrentLogs(data[STORAGE_KEYS.SESSION_LOG], sessionId);
-    const evidenceFacts = buildEvidenceFacts(log);
+    const evidenceFacts = buildEvidenceFacts(log, cachedReport.report, completion.value);
     if (evidenceFacts.length === 0) {
       const empty = await saveRules([]);
       if (!empty.ok) return empty;

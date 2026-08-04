@@ -1,4 +1,4 @@
-// 세션 종료 직후 유튜브 페이지 위에 이탈 리포트를 띄운다.
+// 세션 종료 직후 유튜브 페이지 위에 AI 몰입 리포트를 띄운다.
 // content script에서는 확장 팝업을 열 수 없어서 페이지 안에 모달로 그린다.
 // 본문 렌더링은 popup과 같은 shared/report-view.js를 쓴다.
 //
@@ -177,9 +177,6 @@
 
     setBody(backdrop, (body) => {
       renderReport(body, response.report);
-      const rulesContainer = document.createElement("div");
-      rulesContainer.id = "jjg-next-session-rules";
-      body.appendChild(rulesContainer);
     });
     renderPurposeChangeActions(backdrop, options);
     // 맞춤 조언 생성 실패가 이미 표시된 증거 리포트를 가리지 않도록 별도로 처리한다.
